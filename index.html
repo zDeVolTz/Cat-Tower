@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#1a1625">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="КотоБашня">
+  <title>Кото-Башня | Mobile Game</title>
+  
+  <!-- PWA Manifest & Icons -->
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" type="image/svg+xml" href="/icon.svg">
+  <link rel="icon" type="image/png" sizes="192x192" href="/pwa-192.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="stylesheet" href="/src/styles/main.css">
+  
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').catch(err => console.log('SW reg error:', err));
+      });
+    }
+  </script>
+</head>
+<body>
+
+  <canvas id="gameCanvas"></canvas>
+
+  <div id="hud">
+    <div id="scoreWrap">
+      <div id="score">0</div>
+      <div id="floorLabel">Этаж 0</div>
+      <div id="levelBadge">Уровень 1</div>
+    </div>
+    <div id="audioControls">
+      <div class="music-control-wrap">
+        <button id="musicBtn" aria-label="Музыка" title="Фоновая музыка (Ringmaster Overdrive)">🎵</button>
+        <input type="range" id="volumeSlider" min="0" max="1" step="0.05" value="0.45" aria-label="Громкость" title="Регулятор громкости">
+      </div>
+      <button id="muteBtn" aria-label="Звуки" title="Звуковые эффекты">🔊</button>
+    </div>
+  </div>
+
+  <div id="powerRow"></div>
+
+  <div id="ui">
+    <div class="panel" id="startPanel">
+      <h1>🐱 Кото-Башня</h1>
+      <p>Стройте башню из котиков! Котики могут ставиться как сверху, так и рядом друг с другом в колонне. Берегитесь обрезки за краями!</p>
+      
+      <div class="level-selector-box">
+        <label>Стартовый Уровень:</label>
+        <div class="levelButtons level-btn-group"></div>
+      </div>
+
+      <div class="start-btn-wrap">
+        <button class="btn" id="startBtn">Играть</button>
+        <button class="btn btn-secondary" id="resetProgressBtn" title="Сбросить сохранённый рекорд и чекпоинты">🗑️ Сброс</button>
+      </div>
+    </div>
+
+    <div class="panel hidden" id="overPanel">
+      <h1>Башня рухнула!</h1>
+      <p id="finalScoreText">Счёт: 0</p>
+      <p id="floorReachedText">Этаж: 0</p>
+      <p id="bestScoreText">Рекорд: 0</p>
+
+      <div class="level-selector-box">
+        <label>Выбрать Уровень:</label>
+        <div class="levelButtonsOver level-btn-group"></div>
+      </div>
+
+      <button class="btn" id="restartBtn">Ещё раз</button>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

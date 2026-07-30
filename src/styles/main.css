@@ -1,0 +1,361 @@
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  height: 100dvh; /* iOS Safari address-bar resize fix; falls back to 100% above */
+  overflow: hidden;
+  overscroll-behavior: none; /* stop pull-to-refresh / rubber-band scroll on mobile */
+  background: #1a1625;
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+}
+
+body {
+  position: fixed; /* extra safety against iOS document scroll/bounce */
+  inset: 0;
+}
+
+#gameCanvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none; /* the canvas owns all gestures: no scroll/zoom fighting the tap-to-drop input */
+}
+
+#ui {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+}
+
+.panel {
+  pointer-events: auto;
+  background: rgba(30, 22, 40, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 2px solid rgba(255, 182, 217, 0.5);
+  border-radius: 24px;
+  padding: 24px 28px;
+  text-align: center;
+  color: #fff5fa;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  max-width: 340px;
+  width: 85%;
+  animation: panelPop 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@keyframes panelPop {
+  0% { transform: scale(0.9); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.panel h1 {
+  margin: 0 0 6px;
+  font-size: clamp(22px, 6.2vw, 27px);
+  color: #ffd1e8;
+  text-shadow: 0 2px 8px rgba(255, 111, 165, 0.3);
+}
+
+.panel p {
+  margin: 6px 0 16px;
+  font-size: clamp(12.5px, 3.6vw, 14px);
+  opacity: 0.9;
+  line-height: 1.45;
+}
+
+#levelSelector {
+  margin: 12px 0 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+}
+
+#levelSelector label {
+  font-size: 13px;
+  font-weight: 700;
+  color: #ffd1e8;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.level-btn-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+}
+
+.lvl-btn {
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 12px;
+  color: #fff;
+  padding: 9px 13px;
+  min-height: 40px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.lvl-btn.unlocked:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.lvl-btn.selected {
+  background: linear-gradient(135deg, #ff9ec7, #ff6fa5);
+  border-color: #ffb6d9;
+  color: #2a1520;
+  font-weight: 800;
+  box-shadow: 0 2px 8px rgba(255, 111, 165, 0.5);
+}
+
+.lvl-btn.locked {
+  opacity: 0.45;
+  cursor: not-allowed;
+  background: rgba(0, 0, 0, 0.2);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.start-btn-wrap {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  align-items: center;
+}
+
+.btn {
+  pointer-events: auto;
+  background: linear-gradient(135deg, #ff9ec7, #ff6fa5);
+  border: none;
+  border-radius: 18px;
+  color: #2a1520;
+  font-weight: 700;
+  font-size: clamp(15px, 4.2vw, 17px);
+  padding: 14px 26px;
+  min-height: 48px;
+  cursor: pointer;
+  box-shadow: 0 4px 0 #c2477e, 0 6px 16px rgba(255, 111, 165, 0.4);
+  transition: transform 0.05s, box-shadow 0.05s;
+}
+
+.btn:hover {
+  filter: brightness(1.05);
+}
+
+.btn:active {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 #c2477e, 0 2px 8px rgba(255, 111, 165, 0.4);
+}
+
+.btn-secondary {
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: #fff;
+  font-size: 14px;
+  padding: 12px 16px;
+  box-shadow: none;
+}
+
+.btn-secondary:active {
+  box-shadow: none;
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.hidden {
+  display: none !important;
+}
+
+#hud {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: max(16px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) 16px max(18px, env(safe-area-inset-left));
+  pointer-events: none;
+  z-index: 5;
+}
+
+#scoreWrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+#score {
+  font-size: clamp(28px, 8.5vw, 38px);
+  font-weight: 800;
+  color: #fff;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
+  line-height: 1;
+}
+
+#floorLabel {
+  font-size: 13px;
+  font-weight: 700;
+  color: #ffd1e8;
+  opacity: 0.95;
+  margin-top: 4px;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+}
+
+#levelBadge {
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.2);
+  padding: 2px 7px;
+  border-radius: 8px;
+  margin-top: 4px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+#audioControls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.music-control-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 24px;
+  padding: 2px 8px 2px 2px;
+}
+
+#musicBtn, #muteBtn {
+  pointer-events: auto;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: transparent;
+  border: none;
+  color: #fff;
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.1s;
+}
+
+#muteBtn {
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+#musicBtn:active, #muteBtn:active {
+  transform: scale(0.93);
+}
+
+#volumeSlider {
+  pointer-events: auto;
+  width: 80px;
+  height: 28px; /* real hit-area is taller than the visible track, easier to grab with a thumb */
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  outline: none;
+  cursor: pointer;
+}
+
+#volumeSlider::-webkit-slider-runnable-track {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.4);
+  border-radius: 4px;
+}
+
+#volumeSlider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  margin-top: -8px;
+  border-radius: 50%;
+  background: #ffb6d9;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+}
+
+#volumeSlider::-moz-range-track {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.4);
+  border-radius: 4px;
+}
+
+#volumeSlider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #ffb6d9;
+  border: none;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+}
+
+#powerRow {
+  position: fixed;
+  top: calc(96px + env(safe-area-inset-top));
+  left: max(18px, env(safe-area-inset-left));
+  display: flex;
+  gap: 6px;
+  pointer-events: none;
+  z-index: 5;
+}
+
+/* Backdrop-filter blur is expensive on mid/low-end Android GPUs and is a common
+   cause of dropped frames on real devices even when desktop testing looks smooth.
+   Trim it down (not off, to keep the look) on small/mobile viewports. */
+@media (max-width: 600px) {
+  .panel, .music-control-wrap, #muteBtn, .pchip {
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+  }
+}
+
+.pchip {
+  background: rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 12px;
+  padding: 4px 10px;
+  font-size: 14px;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+.warning-chip {
+  background: rgba(255, 77, 77, 0.45);
+  border-color: #ff4d4d;
+  color: #fff;
+  font-weight: 700;
+  animation: pulseDanger 0.6s infinite alternate;
+}
+
+@keyframes pulseDanger {
+  0% { transform: scale(1); opacity: 0.85; }
+  100% { transform: scale(1.06); opacity: 1; }
+}
