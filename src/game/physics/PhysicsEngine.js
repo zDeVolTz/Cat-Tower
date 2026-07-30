@@ -55,8 +55,8 @@ export class PhysicsEngine {
     return FallingSolver.startTowerCollapse(blocks, towerAngle);
   }
 
-  static stepCollapsingBlocks(blocks, screenH, dt) {
-    return FallingSolver.stepCollapsingBlocks(blocks, screenH, dt);
+  static stepCollapsingBlocks(blocks, screenH, dt, stateObj = null) {
+    return FallingSolver.stepCollapsingBlocks(blocks, screenH, dt, stateObj);
   }
 
   static applyCounterStamping(teeteringBlock, landingBlockMass) {

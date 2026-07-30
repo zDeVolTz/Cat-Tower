@@ -17,7 +17,8 @@ export function update(dt) {
 
   // 2. Physical Inverted Pendulum & Collapse Dynamics
   if (state.status === "collapsing") {
-    const allCleared = PhysicsEngine.stepCollapsingBlocks(state.blocks, state.H, dt);
+    // dt from main.js is in milliseconds, but physics expects SECONDS!
+    const allCleared = PhysicsEngine.stepCollapsingBlocks(state.blocks, state.H, dt / 1000, state);
     if (allCleared) {
       state.status = "over";
       updateHUD();

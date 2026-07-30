@@ -257,10 +257,11 @@ export function triggerTowerCollapse() {
   state.status = "collapsing";
   state.finalFloor = getFloorCount();
   state.best = Math.max(state.best, state.score);
+  state.targetCameraY = 0; // Pan camera down to ground so player SEES the full tower collapse!
   Platform.sendScore(state.score);
   Platform.saveData({ best: state.best, maxUnlockedLevel: state.maxUnlockedLevel });
 
-  triggerShake(12);
+  triggerShake(14);
   PhysicsEngine.startTowerCollapse(state.blocks, state.towerAngle);
 }
 

@@ -107,9 +107,9 @@ export function render() {
   for (let i = 0; i < state.blocks.length; i++) {
     const b = state.blocks[i];
     const screenY = state.H - GROUND_MARGIN - (b.y - state.cameraY) - BLOCK_H;
-    if (screenY < -200 || screenY > state.H + 200) continue;
 
     if (b.isFalling) {
+      if (screenY > state.H + 500) continue; // Keep rendering until block has completely cleared bottom of canvas!
       ctx.save();
       const cx = b.x + b.width / 2;
       const cy = screenY + BLOCK_H / 2;
@@ -120,6 +120,8 @@ export function render() {
       ctx.restore();
       continue;
     }
+
+    if (screenY < -150 || screenY > state.H + 150) continue;
 
     const rigidSway = getBlockSwayX(b.y);
     const localTilt = b.localTilt || 0;

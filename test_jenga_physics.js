@@ -107,14 +107,29 @@ try {
   PhysicsEngine.startTowerCollapse(state.blocks, 0.2);
   
   // Step simulation frames until collapse finishes
-  for (let frame = 0; frame < 100; frame++) {
-    const done = PhysicsEngine.stepCollapsingBlocks(state.blocks, 700, 0.016);
+  for (let frame = 0; frame < 150; frame++) {
+    const done = PhysicsEngine.stepCollapsingBlocks(state.blocks, 700, 0.016, state);
     if (done) {
       state.status = "over";
       break;
     }
   }
   assert(state.status === "over", "J020: Full tower collapse animation completes and transitions game status to 'over'");
+
+  // ─── 8. TOWER CENTER OF MASS COLLAPSE CAMERA & SCATTER PHYSICS (USER BUG COVERAGE) ───
+  resetGameState();
+  state.status = "playing";
+  state.targetCameraY = 400;
+  state.blocks = [
+    { x: 130, width: 140, y: 0, mass: 1.0 },
+    { x: 250, width: 140, y: BLOCK_H, mass: 3.0 },
+    { x: 300, width: 140, y: BLOCK_H * 2, mass: 4.0 }
+  ];
+  const { triggerTowerCollapse } = await import("./src/game/physics.js");
+  triggerTowerCollapse();
+
+  assert(state.targetCameraY === 0, "J021: Tower collapse pans camera down to ground (targetCameraY = 0)");
+  assert(state.blocks.every(b => b.isFalling === true), "J022: All tower blocks enter falling state with scatter velocities");
 
 } catch (err) {
   assert(false, "EX-RUNTIME: Uncaught exception in Jenga physics test suite", err.stack || String(err));
