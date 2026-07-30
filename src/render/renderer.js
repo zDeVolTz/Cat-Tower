@@ -220,6 +220,9 @@ export function render() {
 
     for (let i = 0; i < state.blocks.length; i++) {
       const b = state.blocks[i];
+      const screenY = state.H - GROUND_MARGIN - (b.y - state.cameraY) - BLOCK_H;
+      if (screenY < -120 || screenY > state.H + 120) continue; // Skip off-screen blocks!
+
       const sway = getBlockSwayX(b.y);
       const leftEdge = b.x + sway;
       const rightEdge = leftEdge + b.width;

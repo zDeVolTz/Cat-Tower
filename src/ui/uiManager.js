@@ -213,6 +213,9 @@ export function updateHUD() {
 
   for (let i = 0; i < state.blocks.length; i++) {
     const b = state.blocks[i];
+    const screenY = state.H - 60 - (b.y - state.cameraY) - 46;
+    if (screenY < -120 || screenY > state.H + 120) continue; // Skip off-screen blocks!
+
     const sway = getBlockSwayX ? getBlockSwayX(b.y) : 0;
     const leftEdge = b.x + sway;
     const rightEdge = leftEdge + b.width;
