@@ -165,20 +165,33 @@ export function updateHUD() {
   }
 
   let isNearEdge = false;
-  const warningDist = Math.min(38, state.W * 0.10);
+  let bLeft = 0;
+  let bRight = state.W;
+  let warningDist = Math.min(38, state.W * 0.10);
+
+  if (state.W > 500) {
+    const laneWidth = Math.min(state.W * 0.7, Math.max(480, state.H * 0.65));
+    bLeft = state.W / 2 - laneWidth / 2;
+    bRight = state.W / 2 + laneWidth / 2;
+    warningDist = Math.min(60, laneWidth * 0.12);
+  }
+
   for (let i = 0; i < state.blocks.length; i++) {
     const b = state.blocks[i];
     const sway = getBlockSwayX ? getBlockSwayX(b.y) : 0;
     const leftEdge = b.x + sway;
     const rightEdge = leftEdge + b.width;
-    if (leftEdge < warningDist || (state.W - rightEdge) < warningDist) {
+    if ((leftEdge - bLeft) < warningDist || (bRight - rightEdge) < warningDist) {
       isNearEdge = true;
       break;
     }
   }
 
   const chips = [];
-  if (Math.abs(state.towerAngle) > 0.18 || isNearEdge) {
+  const criticalTilt = (typeof getCriticalTilt === "function") ? getCriticalTilt() : 0.4;
+  const tiltRatio = state.blocks.length > 1 ? Math.abs(state.towerAngle) / criticalTilt : 0;
+
+  if (tiltRatio > 0.28 || isNearEdge) {
     chips.push(`<span class="pchip warning-chip">⚠️ Опасность!</span>`);
   }
 

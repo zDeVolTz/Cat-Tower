@@ -178,9 +178,18 @@ export function render() {
     const criticalTilt = getCriticalTilt();
     const tiltRatio = state.blocks.length > 1 ? Math.abs(state.towerAngle) / criticalTilt : 0;
 
-    // Check proximity of any block in the tower to screen edges (Danger zone: within 10% / 38px of screen edge)
+    // Check proximity of any block in the tower to responsive playfield boundaries
     let maxEdgeDanger = 0;
-    const warningDistance = Math.min(38, state.W * 0.10);
+    let bLeft = 0;
+    let bRight = state.W;
+    let warningDistance = Math.min(38, state.W * 0.10);
+
+    if (state.W > 500) {
+      const laneWidth = Math.min(state.W * 0.7, Math.max(480, state.H * 0.65));
+      bLeft = state.W / 2 - laneWidth / 2;
+      bRight = state.W / 2 + laneWidth / 2;
+      warningDistance = Math.min(60, laneWidth * 0.12);
+    }
 
     for (let i = 0; i < state.blocks.length; i++) {
       const b = state.blocks[i];
@@ -188,8 +197,8 @@ export function render() {
       const leftEdge = b.x + sway;
       const rightEdge = leftEdge + b.width;
 
-      const distLeft = leftEdge;
-      const distRight = state.W - rightEdge;
+      const distLeft = leftEdge - bLeft;
+      const distRight = bRight - rightEdge;
       const minDist = Math.min(distLeft, distRight);
 
       if (minDist < warningDistance) {
@@ -200,7 +209,7 @@ export function render() {
 
     const dangerRatio = Math.max(tiltRatio, maxEdgeDanger);
 
-    if (dangerRatio > 0.40) {
+    if (dangerRatio > 0.28) {
       const dangerAlpha = Math.min(0.5, (dangerRatio - 0.15) * 0.65);
       ctx.save();
       // Red vignette from edges
