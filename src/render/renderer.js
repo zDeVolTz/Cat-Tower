@@ -234,10 +234,10 @@ export function render() {
       }
     }
 
-    const dangerRatio = Math.max(tiltRatio * 1.1, maxEdgeDanger);
+    const dangerRatio = Math.max(tiltRatio, maxEdgeDanger);
 
-    if (dangerRatio > 0.42) {
-      const dangerAlpha = Math.min(0.55, (dangerRatio - 0.42) * 1.6);
+    if (dangerRatio > 0.28) {
+      const dangerAlpha = Math.min(0.5, (dangerRatio - 0.15) * 0.65);
       ctx.save();
       // Red vignette from edges
       const vGrad = ctx.createRadialGradient(

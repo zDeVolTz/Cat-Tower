@@ -226,8 +226,7 @@ export function checkMilestone() {
         maxLife: 2400
       };
     }
-    triggerShake(10);
-    triggerScreenFlash(THEMES[themeIdx].accent, 0.35);
+    triggerShake(6);
     spawnParticles(state.W / 2, state.H * 0.3, 35, [THEMES[themeIdx].accent, "#ffffff"], 4.5, 1000);
     AudioEngine.playMilestoneSound();
   }
