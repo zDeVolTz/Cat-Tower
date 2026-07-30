@@ -76,7 +76,7 @@ export function handleDrop() {
 
   if (landingY < currentTopFloorY - BLOCK_H * 0.8) {
     spawnDebris(dropX, state.mover ? state.mover.y : landingY, dropW, state.mover ? state.mover.color : "#fff", 1);
-    triggerTowerCollapse(false);
+    triggerTowerCollapse(true); // User requested full tower collapse on miss
     return;
   }
 

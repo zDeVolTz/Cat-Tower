@@ -101,7 +101,8 @@ try {
   handleDrop();
   assert(state.blocks.length === 1, "J017: Completely missed drop does NOT add block to tower");
   assert(state.debris.length === 1, "J018: Completely missed drop creates debris");
-  assert(state.status === "collapsing", "J019: Missed drop triggers collapsing state for camera tracking");
+  assert(state.status === "collapsing", "J019: Missed drop triggers collapsing state");
+  assert(state.blocks[0].isFalling === true, "J019b: Completely missed drop explodes the rest of the tower");
 
   // ─── 5. CAT ATTRIBUTE CONTRACTS ───
   assert(BLOCK_TYPES.normal.overturnResistance === 1.0, "J020: Normal cat overturn resistance = 1.0");
