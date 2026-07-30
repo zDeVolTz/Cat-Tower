@@ -183,10 +183,14 @@ function physicsTick(dt) {
   const levelIdx = Math.min(Math.max(0, state.currentLevel - 1), LEVELS.length - 1);
   const swaySens = LEVELS[levelIdx].swaySens;
 
-  // --- Torques ---
+  // EXPERIMENT: When tilt enters the danger warning zone (tiltRatio > 0.25),
+  // gravity torque accelerates 2.6x to 3.2x faster sideways, making the tower rapidly fall towards the wall/edge!
+  const criticalTilt = getCriticalTilt();
+  const tiltRatio = state.blocks.length > 1 ? Math.abs(state.towerAngle) / criticalTilt : 0;
+  const panicAcceleration = tiltRatio > 0.25 ? (1 + (tiltRatio - 0.25) * 4.8) : 1.0;
 
-  // 1. Gravity torque: off-center mass wants to topple the tower
-  const gravityTorque = P.GRAVITY_FACTOR * totalMass * comX * swaySens;
+  // 1. Gravity torque: off-center mass wants to topple the tower (accelerated in danger state)
+  const gravityTorque = P.GRAVITY_FACTOR * totalMass * comX * swaySens * panicAcceleration;
 
   // 2. Restoring spring: foundation fights the tilt
   //    Logarithmic scaling: grows gently with mass so tall towers aren't frozen
@@ -250,7 +254,6 @@ function physicsTick(dt) {
   }
 
   // Combine angle check (for short towers) with strict visual check (for tall towers)
-  const criticalTilt = getCriticalTilt();
   if (Math.abs(state.towerAngle) > criticalTilt || isVisuallyOffScreen) {
     handleGameOver();
   }
