@@ -51,6 +51,9 @@ export function render() {
 
   drawDecorations(ctx, theme, themeIdx, timeSec, state.W, state.H, state.wind);
 
+  // 1.5 Draw Desktop Glassmorphism Arcade Cabinet (Visible bounds & glass walls for desktop)
+  drawDesktopGlassArcadeCabinet(ctx);
+
   // 2. Draw Visual Building Column Guide Lines
   ctx.save();
   ctx.strokeStyle = "rgba(255, 255, 255, 0.12)";
@@ -237,4 +240,71 @@ export function render() {
   }
 
   ctx.restore(); // DPR scale restore
+}
+
+/**
+ * Draws a glassmorphism arcade shaft with glowing neon glass walls on Desktop screens (>500px).
+ * Clearly defines playfield boundaries for PC players so collisions feel natural and intuitive.
+ */
+function drawDesktopGlassArcadeCabinet(ctx) {
+  if (state.W <= 500) return; // Mobile untouched
+
+  const laneWidth = Math.min(state.W * 0.7, Math.max(480, state.H * 0.65));
+  const laneLeft = state.W / 2 - laneWidth / 2;
+  const laneRight = state.W / 2 + laneWidth / 2;
+  const lanePad = 12;
+
+  ctx.save();
+
+  // 1. Darken outer desktop margins to focus attention on central arcade cabinet
+  ctx.fillStyle = "rgba(10, 6, 18, 0.45)";
+  ctx.fillRect(0, 0, laneLeft - lanePad, state.H);
+  ctx.fillRect(laneRight + lanePad, 0, state.W - (laneRight + lanePad), state.H);
+
+  // 2. Glass Shaft Fill (Glassmorphism look with soft inner vertical gradient)
+  const glassGrad = ctx.createLinearGradient(laneLeft, 0, laneRight, 0);
+  glassGrad.addColorStop(0, "rgba(255, 182, 217, 0.08)");
+  glassGrad.addColorStop(0.12, "rgba(22, 14, 32, 0.35)");
+  glassGrad.addColorStop(0.88, "rgba(22, 14, 32, 0.35)");
+  glassGrad.addColorStop(1, "rgba(255, 182, 217, 0.08)");
+
+  ctx.fillStyle = glassGrad;
+  ctx.fillRect(laneLeft - lanePad, 0, laneWidth + lanePad * 2, state.H);
+
+  // 3. Glowing Neon Glass Border Lines (Left & Right Boundaries)
+  ctx.save();
+  ctx.shadowColor = "#ffb6d9";
+  ctx.shadowBlur = 14;
+  ctx.strokeStyle = "rgba(255, 182, 217, 0.65)";
+  ctx.lineWidth = 2.5;
+
+  // Left Glass Boundary Line
+  ctx.beginPath();
+  ctx.moveTo(laneLeft - lanePad, 0);
+  ctx.lineTo(laneLeft - lanePad, state.H);
+  ctx.stroke();
+
+  // Right Glass Boundary Line
+  ctx.beginPath();
+  ctx.moveTo(laneRight + lanePad, 0);
+  ctx.lineTo(laneRight + lanePad, state.H);
+  ctx.stroke();
+  ctx.restore();
+
+  // 4. Subtle Inner Dotted Guide Lines along boundaries
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.16)";
+  ctx.lineWidth = 1.2;
+  ctx.setLineDash([8, 8]);
+  ctx.beginPath();
+  ctx.moveTo(laneLeft, 0); ctx.lineTo(laneLeft, state.H);
+  ctx.moveTo(laneRight, 0); ctx.lineTo(laneRight, state.H);
+  ctx.stroke();
+
+  // 5. Arcade Cabinet Header Title Badge ("🎮 СТЕКЛЯННАЯ АРКАДА")
+  ctx.font = '700 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.fillStyle = "rgba(255, 209, 232, 0.60)";
+  ctx.textAlign = "center";
+  ctx.fillText("🎮 ИГРОВАЯ АРКАДНАЯ ЗОНА", state.W / 2, 22);
+
+  ctx.restore();
 }
