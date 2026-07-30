@@ -5,6 +5,11 @@
 export const BLOCK_H = 46;
 export const PERFECT_TOLERANCE_BASE = 10;
 
+// Single source of truth for two numbers that were previously duplicated as raw
+// literals in gameState.js, gameLoop.js, physics.js and renderer.js (60 and 0.55).
+export const GROUND_MARGIN = 60;       // px gap kept between the tower base and the very bottom of the screen
+export const CAMERA_TRAIL_FRACTION = 0.55; // fraction of screen height the tower can grow before the camera starts following
+
 // Level Config & Checkpoints (1 level = 10 floors)
 export const LEVELS = [
   {
@@ -58,6 +63,36 @@ export const LEVELS = [
     icon: "🚀"
   }
 ];
+
+// How many floors before a level boundary the theme/difficulty blend starts.
+// A hard cut (previous behavior) reads as a glitch; ramping over a few floors reads as a level-up.
+export const LEVEL_TRANSITION_FLOORS = 3;
+
+/**
+ * Returns a blend between the current level and the next one as the player
+ * approaches a 10-floor boundary, so theme colors, wind, speed and sway ramp
+ * in smoothly instead of snapping instantly at floor % 10 === 0.
+ * { from, to, t } — t is 0 while comfortably inside a level, ramps 0→1 over
+ * the transition zone, and is exactly 0 again (from === to) once fully arrived.
+ */
+export function getLevelBlend(floor) {
+  let idx = 0;
+  for (let i = LEVELS.length - 1; i >= 0; i--) {
+    if (floor >= LEVELS[i].startFloor) { idx = i; break; }
+  }
+  const from = LEVELS[idx];
+  const to = LEVELS[Math.min(idx + 1, LEVELS.length - 1)];
+  if (to === from) return { from, to, t: 0 };
+
+  const levelSpan = to.startFloor - from.startFloor; // normally 10
+  const floorsRemaining = levelSpan - (floor - from.startFloor);
+  if (floorsRemaining > LEVEL_TRANSITION_FLOORS) return { from, to, t: 0 };
+
+  const t = 1 - Math.max(0, floorsRemaining) / LEVEL_TRANSITION_FLOORS;
+  return { from, to, t: Math.max(0, Math.min(1, t)) };
+}
+
+export function lerp(a, b, t) { return a + (b - a) * t; }
 
 // Physics constants for Tower Balance (Inverted Pendulum Model)
 export const PHYSICS_CONFIG = {

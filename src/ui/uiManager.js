@@ -2,7 +2,7 @@
  * UI & HUD event handlers, Level Checkpoints selector, and Reset Progress manager.
  */
 import { LEVELS } from "../game/config.js";
-import { state, resetGameState, resetProgress, getFloorCount, getBlockSwayX } from "../game/gameState.js";
+import { state, resetGameState, resetProgress, getFloorCount, getBlockSwayX, getCriticalTilt, getLaneBounds } from "../game/gameState.js";
 import { handleDrop } from "../game/physics.js";
 import { AudioEngine } from "../audio/audioEngine.js";
 
@@ -205,9 +205,9 @@ export function updateHUD() {
   let warningDist = Math.min(38, state.W * 0.10);
 
   if (state.W > 500) {
-    const laneWidth = Math.min(state.W * 0.7, Math.max(480, state.H * 0.65));
-    bLeft = state.W / 2 - laneWidth / 2;
-    bRight = state.W / 2 + laneWidth / 2;
+    const { laneLeft, laneRight, laneWidth } = getLaneBounds();
+    bLeft = laneLeft;
+    bRight = laneRight;
     warningDist = Math.min(60, laneWidth * 0.12);
   }
 
@@ -223,7 +223,7 @@ export function updateHUD() {
   }
 
   const chips = [];
-  const criticalTilt = (typeof getCriticalTilt === "function") ? getCriticalTilt() : 0.4;
+  const criticalTilt = getCriticalTilt();
   const tiltRatio = state.blocks.length > 1 ? Math.abs(state.towerAngle) / criticalTilt : 0;
 
   if (tiltRatio > 0.28 || isNearEdge) {

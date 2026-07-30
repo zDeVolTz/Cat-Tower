@@ -4,26 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#1a1625">
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="КотоБашня">
   <title>Кото-Башня | Mobile Game</title>
-  
-  <!-- PWA Manifest & Icons -->
-  <link rel="manifest" href="/manifest.json">
-  <link rel="icon" type="image/svg+xml" href="/icon.svg">
-  <link rel="icon" type="image/png" sizes="192x192" href="/pwa-192.png">
-  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="stylesheet" href="/src/styles/main.css">
-  
-  <script>
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js').catch(err => console.log('SW reg error:', err));
-      });
-    }
-  </script>
 </head>
 <body>
 
@@ -48,7 +30,7 @@
   <div id="ui">
     <div class="panel" id="startPanel">
       <h1>🐱 Кото-Башня</h1>
-      <p>Стройте башню из котиков! Котики могут ставиться как сверху, так и рядом друг с другом в колонне. Берегитесь обрезки за краями!</p>
+      <p>Стройте башню из котиков как можно выше! Цельтесь точно — идеальные попадания дают комбо-бонус. Следите за наклоном и не давайте котикам соскальзывать за края!</p>
       
       <div class="level-selector-box">
         <label>Стартовый Уровень:</label>

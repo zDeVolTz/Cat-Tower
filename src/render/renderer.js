@@ -1,13 +1,31 @@
 /**
  * Canvas Renderer with Harmonic Tower Sway curve rendering, dynamic weather parallax & HUD guide lines.
  */
-import { BLOCK_H, THEMES, PHYSICS_CONFIG } from "../game/config.js";
-import { state, getFloorCount, getBlockSwayX, getCriticalTilt } from "../game/gameState.js";
+import { BLOCK_H, GROUND_MARGIN, THEMES, PHYSICS_CONFIG, getLevelBlend } from "../game/config.js";
+import { state, getFloorCount, getBlockSwayX, getCriticalTilt, getLaneBounds } from "../game/gameState.js";
 import { drawCatBlock } from "./drawCats.js";
 import { drawDecorations } from "./drawDecor.js";
 
 let mainCtx = null;
 let activeCanvas = null;
+
+function hexToRgb(hex) {
+  const h = hex.replace("#", "");
+  const full = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
+  const n = parseInt(full, 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+function lerpColor(hexA, hexB, t) {
+  if (t <= 0) return hexA;
+  if (t >= 1) return hexB;
+  const a = hexToRgb(hexA);
+  const b = hexToRgb(hexB);
+  const r = Math.round(a[0] + (b[0] - a[0]) * t);
+  const g = Math.round(a[1] + (b[1] - a[1]) * t);
+  const bl = Math.round(a[2] + (b[2] - a[2]) * t);
+  return `rgb(${r}, ${g}, ${bl})`;
+}
 
 export function initRenderer(canvasElement) {
   activeCanvas = canvasElement;
@@ -38,18 +56,24 @@ export function render() {
   ctx.clearRect(0, 0, state.W, state.H);
 
   // 1. Draw Background Parallax & Dynamic Weather
-  const themeIdx = Math.min(Math.max(0, state.currentLevel - 1), THEMES.length - 1);
-  const theme = THEMES[themeIdx] || THEMES[0];
+  const floorNow = getFloorCount();
+  const blend = getLevelBlend(floorNow);
+  const themeFrom = THEMES[Math.min(blend.from.level - 1, THEMES.length - 1)] || THEMES[0];
+  const themeTo = THEMES[Math.min(blend.to.level - 1, THEMES.length - 1)] || themeFrom;
   const timeSec = performance.now() / 1000;
 
-  // Background Gradient
+  // Background Gradient — crossfades smoothly across the last few floors of a level
+  // instead of snapping the instant floor % 10 === 0 is crossed.
   const grad = ctx.createLinearGradient(0, 0, 0, state.H);
-  grad.addColorStop(0, theme.from);
-  grad.addColorStop(1, theme.to);
+  grad.addColorStop(0, lerpColor(themeFrom.from, themeTo.from, blend.t));
+  grad.addColorStop(1, lerpColor(themeFrom.to, themeTo.to, blend.t));
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, state.W, state.H);
 
-  drawDecorations(ctx, theme, themeIdx, timeSec, state.W, state.H, state.wind);
+  // Background theme decorations stay consistent until floor level changes
+  const activeTheme = themeFrom;
+  const activeThemeIdx = Math.min(blend.from.level - 1, THEMES.length - 1);
+  drawDecorations(ctx, activeTheme, activeThemeIdx, timeSec, state.W, state.H, state.wind);
 
   // 1.5 Draw Desktop Glassmorphism Arcade Cabinet (Visible bounds & glass walls for desktop)
   drawDesktopGlassArcadeCabinet(ctx);
@@ -82,7 +106,7 @@ export function render() {
   // 3. Render Cat Blocks Stack — Rigid Body Sway (same formula as physics)
   for (let i = 0; i < state.blocks.length; i++) {
     const b = state.blocks[i];
-    const screenY = state.H - 60 - (b.y - state.cameraY) - BLOCK_H;
+    const screenY = state.H - GROUND_MARGIN - (b.y - state.cameraY) - BLOCK_H;
     if (screenY < -120 || screenY > state.H + 120) continue;
 
     // Pure rigid body sway: sin(angle) * height — same as getBlockSwayX(b.y)
@@ -101,13 +125,13 @@ export function render() {
 
   // 4. Render Active Mover Block
   if (state.mover && state.status === "playing") {
-    const moverY = state.H - 60 - (state.mover.y - state.cameraY) - BLOCK_H;
+    const moverY = state.H - GROUND_MARGIN - (state.mover.y - state.cameraY) - BLOCK_H;
     drawCatBlock(ctx, state.mover, state.mover.x, moverY);
   }
 
   // 5. Render Falling Debris
   for (const d of state.debris) {
-    const sy = state.H - 60 - (d.y - state.cameraY) - d.height;
+    const sy = state.H - GROUND_MARGIN - (d.y - state.cameraY) - d.height;
     ctx.save();
     ctx.translate(d.x + d.width / 2, sy + d.height / 2);
     ctx.rotate(d.rot);
@@ -188,10 +212,10 @@ export function render() {
     let warningDistance = Math.min(38, state.W * 0.10);
 
     if (state.W > 500) {
-      const laneWidth = Math.min(state.W * 0.7, Math.max(480, state.H * 0.65));
-      bLeft = state.W / 2 - laneWidth / 2;
-      bRight = state.W / 2 + laneWidth / 2;
-      warningDistance = Math.min(60, laneWidth * 0.12);
+      const lane = getLaneBounds();
+      bLeft = lane.laneLeft;
+      bRight = lane.laneRight;
+      warningDistance = Math.min(60, lane.laneWidth * 0.12);
     }
 
     for (let i = 0; i < state.blocks.length; i++) {
@@ -210,10 +234,10 @@ export function render() {
       }
     }
 
-    const dangerRatio = Math.max(tiltRatio, maxEdgeDanger);
+    const dangerRatio = Math.max(tiltRatio * 1.1, maxEdgeDanger);
 
-    if (dangerRatio > 0.28) {
-      const dangerAlpha = Math.min(0.5, (dangerRatio - 0.15) * 0.65);
+    if (dangerRatio > 0.42) {
+      const dangerAlpha = Math.min(0.55, (dangerRatio - 0.42) * 1.6);
       ctx.save();
       // Red vignette from edges
       const vGrad = ctx.createRadialGradient(
@@ -249,9 +273,7 @@ export function render() {
 function drawDesktopGlassArcadeCabinet(ctx) {
   if (state.W <= 500) return; // Mobile untouched
 
-  const laneWidth = Math.min(state.W * 0.7, Math.max(480, state.H * 0.65));
-  const laneLeft = state.W / 2 - laneWidth / 2;
-  const laneRight = state.W / 2 + laneWidth / 2;
+  const { laneWidth, laneLeft, laneRight } = getLaneBounds();
   const lanePad = 12;
 
   ctx.save();

@@ -1,7 +1,11 @@
 /**
  * Central state container for Cat Tower Stack game with Harmonic Tower Sway Engine.
  */
-import { BLOCK_TYPES, UNLOCK_ORDER, LEVELS } from "./config.js";
+import {
+  BLOCK_TYPES, UNLOCK_ORDER, LEVELS,
+  BLOCK_H, GROUND_MARGIN, CAMERA_TRAIL_FRACTION,
+  getLevelBlend, lerp
+} from "./config.js";
 import { AudioEngine } from "../audio/audioEngine.js";
 import { Platform } from "../sdk/youtubeSdk.js";
 
@@ -31,6 +35,7 @@ export const state = {
   towerAngle: 0,
   towerAngularVelocity: 0,
   wind: 0,
+  swaySens: 0.9,
 
   // Scoring & Stats
   score: 0,
@@ -62,6 +67,21 @@ export function uiScale() {
   return Math.max(0.82, Math.min(1.15, state.W / 390));
 }
 
+/**
+ * Single source of truth for the desktop "arcade lane" width/bounds.
+ * Was previously the same inline formula copy-pasted in getMoverLimits,
+ * getCriticalTilt, gameLoop's collapse check, and twice in renderer.js —
+ * five places that would silently drift apart the moment one was edited.
+ */
+export function getLaneBounds() {
+  const laneWidth = Math.min(state.W * 0.7, Math.max(480, state.H * 0.65));
+  return {
+    laneWidth,
+    laneLeft: state.W / 2 - laneWidth / 2,
+    laneRight: state.W / 2 + laneWidth / 2
+  };
+}
+
 export function updateColumnBounds() {
   if (state.W <= 500) {
     // Mobile: exact experience approved by user (max 140px)
@@ -85,10 +105,8 @@ export function getMoverLimits() {
       spawnRight: state.W
     };
   } else {
-    // Desktop: focused central arcade playfield lane (~480-560px wide)
-    const laneWidth = Math.min(state.W * 0.7, Math.max(480, state.H * 0.65));
-    const laneLeft = state.W / 2 - laneWidth / 2;
-    const laneRight = state.W / 2 + laneWidth / 2;
+    // Desktop: focused central arcade playfield lane
+    const { laneLeft, laneRight } = getLaneBounds();
     const w = state.mover ? state.mover.width : 100;
     return {
       left: laneLeft - w * 0.9,
@@ -106,14 +124,14 @@ export function getTopFloorY() {
   if (state.blocks.length === 0) return 0;
   let maxY = 0;
   for (const b of state.blocks) {
-    if (b.y + 46 > maxY) maxY = b.y + 46;
+    if (b.y + BLOCK_H > maxY) maxY = b.y + BLOCK_H;
   }
   return maxY;
 }
 
 export function getFloorCount() {
   const topY = getTopFloorY();
-  const floorInRun = Math.max(0, Math.floor(topY / 46) - 1);
+  const floorInRun = Math.max(0, Math.floor(topY / BLOCK_H) - 1);
   return (state.startFloor || 0) + floorInRun;
 }
 
@@ -139,9 +157,9 @@ export function getTopFloorSwayOffset() {
  * so they don't sway completely off the screen.
  */
 export function getCriticalTilt() {
-  const towerHeight = Math.max(46, getTopFloorY());
+  const towerHeight = Math.max(BLOCK_H, getTopFloorY());
   const baseCritical = 0.40; // From config (CRITICAL_TILT)
-  
+
   if (state.W <= 500) {
     // Mobile: exact experience (max 30% screen width sway)
     const maxAllowedSway = state.W * 0.30;
@@ -151,7 +169,7 @@ export function getCriticalTilt() {
     return baseCritical;
   } else {
     // Desktop: responsive critical tilt for central arcade playfield lane
-    const laneWidth = Math.min(state.W * 0.7, Math.max(480, state.H * 0.65));
+    const { laneWidth } = getLaneBounds();
     const maxAllowedSway = laneWidth * 0.30;
     if (towerHeight > maxAllowedSway) {
       return Math.min(baseCritical, Math.asin(maxAllowedSway / towerHeight));
@@ -187,7 +205,7 @@ export function resetGameState() {
   state.floatingTexts = [];
 
   const topY = getTopFloorY();
-  state.targetCameraY = Math.max(0, topY - state.H * 0.55);
+  state.targetCameraY = Math.max(0, topY - state.H * CAMERA_TRAIL_FRACTION);
   state.cameraY = state.targetCameraY;
 
   state.towerAngle = 0;
@@ -212,8 +230,8 @@ export function spawnMover() {
   if (state.status !== "playing") return;
 
   const floor = getFloorCount();
-  const levelIdx = Math.min(Math.floor(floor / 10), LEVELS.length - 1);
-  const lvlCfg = LEVELS[levelIdx] || LEVELS[0];
+  const blend = getLevelBlend(floor);
+  const lvlCfg = blend.from; // the level we're "in" right now for badges/checkpoints — unchanged semantics
   state.currentLevel = lvlCfg.level;
 
   // Unlock checkpoint if reached new level
@@ -243,8 +261,10 @@ export function spawnMover() {
     }
   }
 
-  // Set wind according to current level difficulty
-  state.wind = (Math.random() - 0.5) * 2 * lvlCfg.windFactor;
+  // Wind & sway sensitivity ramp smoothly across the transition zone (see getLevelBlend)
+  // instead of snapping the instant the floor threshold is crossed.
+  state.wind = (Math.random() - 0.5) * 2 * lerp(blend.from.windFactor, blend.to.windFactor, blend.t);
+  state.swaySens = lerp(blend.from.swaySens, blend.to.swaySens, blend.t);
 
   let chosenTypeId = "normal";
   let isGolden = false;
@@ -279,7 +299,7 @@ export function spawnMover() {
 
   const fromLeft = Math.random() < 0.5;
   const t = BLOCK_TYPES[chosenTypeId] || BLOCK_TYPES.normal;
-  const speed = Math.min(lvlCfg.speedBase + floor * 0.08, 9.5) * t.speedMult;
+  const speed = Math.min(lerp(blend.from.speedBase, blend.to.speedBase, blend.t) + floor * 0.08, 9.5) * t.speedMult;
 
   const type = BLOCK_TYPES[chosenTypeId] || BLOCK_TYPES.normal;
   const color = type.palette[state.blocks.length % type.palette.length];
@@ -317,7 +337,7 @@ export function spawnDebris(x, y, width, color, dir) {
     x,
     y,
     width,
-    height: 46,
+    height: BLOCK_H,
     color,
     vx: dir * (2.0 + Math.random() * 2.5),
     vy: -3 - Math.random() * 2,

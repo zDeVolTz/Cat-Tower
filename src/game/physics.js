@@ -1,7 +1,7 @@
 /**
  * Tetris Column Physics Engine with Harmonic Procedural Sway reactions.
  */
-import { BLOCK_H, PERFECT_TOLERANCE_BASE, BLOCK_TYPES, THEMES, PHYSICS_CONFIG } from "./config.js";
+import { BLOCK_H, GROUND_MARGIN, CAMERA_TRAIL_FRACTION, PERFECT_TOLERANCE_BASE, BLOCK_TYPES, THEMES, PHYSICS_CONFIG } from "./config.js";
 import {
   state,
   spawnMover,
@@ -73,7 +73,7 @@ export function handleDrop() {
   let dropX = state.mover.x;
   let dropW = state.mover.width;
 
-  const screenMidY = state.H - 60 - ((state.mover ? state.mover.y : getTopFloorY()) - state.cameraY) - BLOCK_H / 2;
+  const screenMidY = state.H - GROUND_MARGIN - ((state.mover ? state.mover.y : getTopFloorY()) - state.cameraY) - BLOCK_H / 2;
 
   // 4. Find highest supporting surface Y underneath footprint
   const currentTopFloorY = getTopFloorY();
@@ -170,17 +170,24 @@ export function handleDrop() {
     }
   }
 
-  // Score calculation
-  let gained = 1;
-  if (state.combo >= 2) gained += state.combo;
-  if (state.feverMode) gained *= 2;
-  gained = Math.round(gained * type.scoreMult * (state.mover.isGolden ? 2 : 1));
-
-  // Guide lines precision bonus: block lands completely inside the visible column guide lines
+  // Score calculation — combo stays additive (it's the direct skill signal), while
+  // fever/type/golden/guide-line bonuses combine into ONE multiplier capped at x4.
+  // Previously these multiplied on top of each other uncapped (up to x176 for a big
+  // combo + fever + heavy cat + golden + guide-lines at once), which made the number
+  // both unreadable and made "inside the guide lines" (which triggers on almost every
+  // careful drop) blow the score up disproportionately versus actual skill (combo).
   const isInsideGuideLines = (dropX >= state.columnLeft - 4) && (dropX + dropW <= state.columnRight + 4);
-  if (isInsideGuideLines) {
-    gained *= 2; // 2x score multiplier for keeping within visible guide lines!
-  }
+
+  let base = 1;
+  if (state.combo >= 2) base += state.combo;
+
+  let multiplier = type.scoreMult;
+  if (state.feverMode) multiplier *= 2;
+  if (state.mover.isGolden) multiplier *= 2;
+  if (isInsideGuideLines) multiplier *= 2;
+  multiplier = Math.min(multiplier, 4);
+
+  const gained = Math.round(base * multiplier);
   state.score += gained;
 
   if (state.mover.isGolden) {
@@ -202,8 +209,8 @@ export function handleDrop() {
 
 
 function updateCameraTarget(topY) {
-  if (topY - state.targetCameraY > state.H * 0.55) {
-    state.targetCameraY = topY - state.H * 0.55;
+  if (topY - state.targetCameraY > state.H * CAMERA_TRAIL_FRACTION) {
+    state.targetCameraY = topY - state.H * CAMERA_TRAIL_FRACTION;
   }
 }
 

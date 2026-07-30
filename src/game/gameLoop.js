@@ -1,8 +1,8 @@
 /**
  * Physics loop update tick with Harmonic Procedural Sway, particle animation & camera lerp.
  */
-import { BLOCK_H, BLOCK_TYPES, PHYSICS_CONFIG, LEVELS } from "./config.js";
-import { state, spawnParticles, getFloorCount, getBlockSwayX, getCriticalTilt, getMoverLimits } from "./gameState.js";
+import { BLOCK_H, GROUND_MARGIN, BLOCK_TYPES, PHYSICS_CONFIG } from "./config.js";
+import { state, spawnParticles, getFloorCount, getBlockSwayX, getCriticalTilt, getMoverLimits, getLaneBounds } from "./gameState.js";
 import { handleGameOver } from "./physics.js";
 
 // Accumulator for fixed timestep
@@ -42,7 +42,7 @@ export function update(dt) {
     }
 
     if (state.mover.isGolden && Math.random() < 0.3) {
-      const sy = state.H - 60 - (state.mover.y - state.cameraY) - BLOCK_H / 2;
+      const sy = state.H - GROUND_MARGIN - (state.mover.y - state.cameraY) - BLOCK_H / 2;
       spawnParticles(state.mover.x + state.mover.width / 2, sy, 1, ["#ffe08a", "#fff3c4"], 1, 400);
     }
   }
@@ -108,8 +108,8 @@ export function update(dt) {
 
   // 9. Screen Flash Decay
   if (state.screenFlash) {
-    state.screenFlash.alpha *= 0.88;
-    if (state.screenFlash.alpha < 0.01) {
+    state.screenFlash.alpha *= 0.82;
+    if (state.screenFlash.alpha < 0.02) {
       state.screenFlash = null;
     }
   }
@@ -179,18 +179,12 @@ function physicsTick(dt) {
   const comX = (weightedX / totalWeightedMass) - pivotX; // Horizontal offset from pivot
   const comY = weightedY / totalMass;             // Average height
 
-  // --- Level difficulty via state.currentLevel ---
-  const levelIdx = Math.min(Math.max(0, state.currentLevel - 1), LEVELS.length - 1);
-  const swaySens = LEVELS[levelIdx].swaySens;
+  // Level difficulty: use the blended value computed in spawnMover (see getLevelBlend)
+  // so sway sensitivity ramps across a boundary instead of jumping instantly.
+  const swaySens = state.swaySens;
 
-  // EXPERIMENT: When tilt enters the danger warning zone (tiltRatio > 0.25),
-  // gravity torque accelerates 2.6x to 3.2x faster sideways, making the tower rapidly fall towards the wall/edge!
-  const criticalTilt = getCriticalTilt();
-  const tiltRatio = state.blocks.length > 1 ? Math.abs(state.towerAngle) / criticalTilt : 0;
-  const panicAcceleration = tiltRatio > 0.25 ? (1 + (tiltRatio - 0.25) * 4.8) : 1.0;
-
-  // 1. Gravity torque: off-center mass wants to topple the tower (accelerated in danger state)
-  const gravityTorque = P.GRAVITY_FACTOR * totalMass * comX * swaySens * panicAcceleration;
+  // 1. Gravity torque: off-center mass wants to topple the tower
+  const gravityTorque = P.GRAVITY_FACTOR * totalMass * comX * swaySens;
 
   // 2. Restoring spring: foundation fights the tilt
   //    Logarithmic scaling: grows gently with mass so tall towers aren't frozen
@@ -237,9 +231,7 @@ function physicsTick(dt) {
     }
   } else {
     // Desktop: collapse check against central arcade playfield lane boundaries
-    const laneWidth = Math.min(state.W * 0.7, Math.max(480, state.H * 0.65));
-    const laneLeft = state.W / 2 - laneWidth / 2;
-    const laneRight = state.W / 2 + laneWidth / 2;
+    const { laneLeft, laneRight } = getLaneBounds();
 
     for (let i = 0; i < state.blocks.length; i++) {
       const b = state.blocks[i];
