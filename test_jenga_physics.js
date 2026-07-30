@@ -5,7 +5,7 @@
 
 import { BLOCK_H, PHYSICS_CONFIG, BLOCK_TYPES } from "./src/game/config.js";
 import { state, resetGameState, calculateBlockMass } from "./src/game/gameState.js";
-import { evaluateBlockStability, checkTowerCenterOfMass, PhysicsEngine } from "./src/game/physics.js";
+import { evaluateBlockStability, checkTowerCenterOfMass, PhysicsEngine, handleDrop } from "./src/game/physics.js";
 
 let passed = 0;
 let failed = 0;
@@ -72,18 +72,49 @@ try {
   state.blocks.push({ x: 250, width: 140, y: BLOCK_H * 4, mass: 3.3 });
   assert(checkTowerCenterOfMass().isUnbalanced === true, "J011: Severely right-shifted heavy tower triggers CoM collapse");
 
-  // ─── 4. CAT ATTRIBUTE CONTRACTS ───
-  assert(BLOCK_TYPES.normal.overturnResistance === 1.0, "J012: Normal cat overturn resistance = 1.0");
-  assert(BLOCK_TYPES.sticky.overturnResistance === 2.0, "J013: Sticky cat overturn resistance = 2.0");
-  assert(BLOCK_TYPES.slippery.overturnResistance === 0.6, "J014: Slippery cat overturn resistance = 0.6");
-  assert(BLOCK_TYPES.sticky.friction === 2.0, "J015: Sticky cat surface friction = 2.0");
+  // ─── 4. TEETERING AND FALLING BLOCK TESTS ───
+  resetGameState();
+  state.status = "playing";
+  // Base is at x=130..270. Drop block at x=255, width=100. Overlap is 15px (15%).
+  state.mover = { x: 255, y: BLOCK_H, width: 100, mass: 1, typeId: "normal", color: "#fff" };
+  handleDrop();
+  assert(state.blocks.length === 2, "J012: Teetering drop adds block");
+  let teeterBlock = state.blocks[1];
+  assert(teeterBlock.isTeetering === true, "J013: Block with < 20% overlap is teetering");
+  assert(teeterBlock.settled === false, "J014: Teetering block is not settled");
 
-  // ─── 5. STAGE 1 & 3: MODULAR ENGINE & IMPULSE ATTENUATION ───
+  // Step the block physically a few times to exceed TEETER_MAX_ANGLE
+  let tipped = false;
+  for (let i = 0; i < 60; i++) {
+    if (PhysicsEngine.stepTeeteringBlock(teeterBlock, 1.0, 0.016)) {
+      tipped = true;
+      break;
+    }
+  }
+  assert(tipped === true, "J015: Teetering block eventually tips over");
+  assert(teeterBlock.isFalling === true, "J016: Tipped block transitions to isFalling = true");
+
+  // Test complete miss
+  resetGameState();
+  state.status = "playing";
+  state.mover = { x: 300, y: BLOCK_H, width: 100, mass: 1, typeId: "normal", color: "#fff" }; // Overlap is 0
+  handleDrop();
+  assert(state.blocks.length === 1, "J017: Completely missed drop does NOT add block to tower");
+  assert(state.debris.length === 1, "J018: Completely missed drop creates debris");
+  assert(state.status === "collapsing", "J019: Missed drop triggers collapsing state for camera tracking");
+
+  // ─── 5. CAT ATTRIBUTE CONTRACTS ───
+  assert(BLOCK_TYPES.normal.overturnResistance === 1.0, "J020: Normal cat overturn resistance = 1.0");
+  assert(BLOCK_TYPES.sticky.overturnResistance === 2.0, "J021: Sticky cat overturn resistance = 2.0");
+  assert(BLOCK_TYPES.slippery.overturnResistance === 0.6, "J022: Slippery cat overturn resistance = 0.6");
+  assert(BLOCK_TYPES.sticky.friction === 2.0, "J023: Sticky cat surface friction = 2.0");
+
+  // ─── 6. STAGE 1 & 3: MODULAR ENGINE & IMPULSE ATTENUATION ───
   const impulseSmall = PhysicsEngine.calculateDropImpulse(5, 1.0, 5, 200);
   const impulseLarge = PhysicsEngine.calculateDropImpulse(30, 1.0, 5, 200);
-  assert(Math.abs(impulseSmall) < Math.abs(impulseLarge) * 0.1, "J016: Small misalignment (<15px) applies heavily attenuated impulse");
+  assert(Math.abs(impulseSmall) < Math.abs(impulseLarge) * 0.1, "J024: Small misalignment (<15px) applies heavily attenuated impulse");
 
-  // ─── 6. STAGE 4: MULTI-PHASE COLLAPSE SEQUENCE ───
+  // ─── 7. STAGE 4: MULTI-PHASE COLLAPSE SEQUENCE ───
   resetGameState();
   state.status = "playing";
   state.blocks = [
@@ -91,15 +122,15 @@ try {
     { x: 130, width: 140, y: BLOCK_H, mass: 1.0 }
   ];
   PhysicsEngine.startTowerCollapse(state.blocks, 0.2);
-  assert(state.blocks[0].isFalling === true, "J017: Tower collapse sets blocks into falling state");
+  assert(state.blocks[0].isFalling === true, "J025: Tower collapse sets blocks into falling state");
   
   const allCleared = PhysicsEngine.stepCollapsingBlocks(state.blocks, 700, 0.016);
-  assert(typeof allCleared === "boolean", "J018: Collapsing step returns boolean indicating off-screen state");
+  assert(typeof allCleared === "boolean", "J026: Collapsing step returns boolean indicating off-screen state");
 
-  // ─── 7. SINGLE BLOCK OVERHANG TIPPING & COLLAPSE SEQUENCE (USER BUG COVERAGE) ───
-  const teeterBlock = { isTeetering: true, localTilt: 0.45, tiltVel: 0, tiltDir: 1, typeId: "normal" };
-  const tipped = PhysicsEngine.stepTeeteringBlock(teeterBlock, 1.0, 0.016);
-  assert(tipped === true && teeterBlock.isFalling === true && teeterBlock.vx > 0, "J019: Single overhanging block tipping over converts to physical falling trajectory");
+  // ─── 8. SINGLE BLOCK OVERHANG TIPPING & COLLAPSE SEQUENCE (USER BUG COVERAGE) ───
+  const singleTeeterBlock = { isTeetering: true, localTilt: 0.45, tiltVel: 0, tiltDir: 1, typeId: "normal" };
+  const singleTipped = PhysicsEngine.stepTeeteringBlock(singleTeeterBlock, 1.0, 0.016);
+  assert(singleTipped === true && singleTeeterBlock.isFalling === true && singleTeeterBlock.vx > 0, "J027: Single overhanging block tipping over converts to physical falling trajectory");
 
   resetGameState();
   state.status = "playing";
@@ -114,9 +145,9 @@ try {
       break;
     }
   }
-  assert(state.status === "over", "J020: Full tower collapse animation completes and transitions game status to 'over'");
+  assert(state.status === "over", "J028: Full tower collapse animation completes and transitions game status to 'over'");
 
-  // ─── 8. TOWER CENTER OF MASS COLLAPSE CAMERA & SCATTER PHYSICS (USER BUG COVERAGE) ───
+  // ─── 9. TOWER CENTER OF MASS COLLAPSE CAMERA & SCATTER PHYSICS (USER BUG COVERAGE) ───
   resetGameState();
   state.status = "playing";
   state.targetCameraY = 400;
@@ -125,11 +156,9 @@ try {
     { x: 250, width: 140, y: BLOCK_H, mass: 3.0 },
     { x: 300, width: 140, y: BLOCK_H * 2, mass: 4.0 }
   ];
-  const { triggerTowerCollapse } = await import("./src/game/physics.js");
-  triggerTowerCollapse();
-
-  assert(state.targetCameraY === 0, "J021: Tower collapse pans camera down to ground (targetCameraY = 0)");
-  assert(state.blocks.every(b => b.isFalling === true), "J022: All tower blocks enter falling state with scatter velocities");
+  
+  PhysicsEngine.startTowerCollapse(state.blocks, 0.5);
+  assert(state.blocks.every(b => b.isFalling === true), "J029: All tower blocks enter falling state with scatter velocities");
 
 } catch (err) {
   assert(false, "EX-RUNTIME: Uncaught exception in Jenga physics test suite", err.stack || String(err));

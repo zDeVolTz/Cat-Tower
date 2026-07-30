@@ -10,7 +10,7 @@ export class FallingSolver {
    * Integrates local teetering edge rotation for overhanging blocks.
    * Returns true if block tipped over critical angle (Stage 2 fix).
    */
-  static stepTeeteringBlock(block, friction, dt) {
+  static stepTeeteringBlock(block, friction, dt, towerAngle = 0) {
     if (!block || !block.isTeetering) return false;
 
     // dt is in SECONDS
@@ -27,7 +27,7 @@ export class FallingSolver {
     // Stage 2: Returns true when tilt exceeds TEETER_MAX_ANGLE (~24 deg)
     const exceeds = Math.abs(block.localTilt) >= P.TEETER_MAX_ANGLE;
     if (exceeds) {
-      this.triggerSingleBlockFall(block);
+      this.triggerSingleBlockFall(block, towerAngle);
     }
     return exceeds;
   }
@@ -35,15 +35,19 @@ export class FallingSolver {
   /**
    * Converts a single overhanging teetering block into a falling physics object.
    */
-  static triggerSingleBlockFall(block) {
+  static triggerSingleBlockFall(block, towerAngle = 0) {
     if (!block) return;
+    
+    // Bake visual tower sway into physical properties
+    block.x += block.y * Math.sin(towerAngle);
+    block.rot = towerAngle + (block.localTilt || 0);
+    
     block.isTeetering = false;
     block.isFalling = true;
     block.settled = false;
     const dir = block.tiltDir || 1;
     block.vx = dir * (1.2 + Math.random() * 1.0);
     block.vy = -2.0; // Subtle upward pop
-    block.rot = block.localTilt || 0;
     block.rotVel = dir * (0.02 + Math.random() * 0.02);
   }
 

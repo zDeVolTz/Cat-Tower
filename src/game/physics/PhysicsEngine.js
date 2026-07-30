@@ -44,8 +44,8 @@ export class PhysicsEngine {
     return TowerTiltSolver.stepSway(towerAngle, angularVelocity, totalMass, towerHeight, comOffset, dt);
   }
 
-  static stepTeeteringBlock(block, friction, dt) {
-    return FallingSolver.stepTeeteringBlock(block, friction, dt);
+  static stepTeeteringBlock(block, friction, dt, towerAngle = 0) {
+    return FallingSolver.stepTeeteringBlock(block, friction, dt, towerAngle);
   }
 
   static triggerSingleBlockFall(block) {

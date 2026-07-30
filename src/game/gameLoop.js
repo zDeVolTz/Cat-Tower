@@ -21,6 +21,15 @@ export function update(dt) {
 
   // 2. Physical Inverted Pendulum & Collapse Dynamics
   if (state.status === "collapsing") {
+    // Keep swaying the remaining tower during Game Over!
+    physicsAccumulator += dt;
+    const substepMs = PHYSICS_CONFIG.PHYSICS_SUBSTEP_MS;
+    if (physicsAccumulator > 200) physicsAccumulator = 200;
+    while (physicsAccumulator >= substepMs) {
+      physicsAccumulator -= substepMs;
+      physicsTick(substepMs / 1000, true);
+    }
+
     const fallingBlocks = state.blocks.filter(b => b.isFalling);
     if (fallingBlocks.length === 1) {
       state.targetCameraY = Math.max(0, fallingBlocks[0].y - state.H * 0.45);
@@ -42,7 +51,7 @@ export function update(dt) {
 
     while (physicsAccumulator >= substepMs && state.status === "playing" && state.blocks.length > 1) {
       physicsAccumulator -= substepMs;
-      physicsTick(substepMs / 1000);
+      physicsTick(substepMs / 1000, false);
     }
   }
 
@@ -146,7 +155,7 @@ export function update(dt) {
  * Single fixed-timestep physics tick for the inverted pendulum tower model.
  * dt is in seconds (e.g. 0.004 for a 4ms substep).
  */
-function physicsTick(dt) {
+function physicsTick(dt, isGameOver = false) {
   if (!state.blocks || state.blocks.length <= 1) return;
   const P = PHYSICS_CONFIG;
 
@@ -158,7 +167,7 @@ function physicsTick(dt) {
   const visibleBlocks = [];
   for (let i = 0; i < state.blocks.length; i++) {
     const b = state.blocks[i];
-    if (b.y >= minY && b.y <= maxY) {
+    if (b.y >= minY && b.y <= maxY && !b.isFalling) {
       visibleBlocks.push({ block: b, originalIdx: i });
     }
   }
@@ -167,7 +176,9 @@ function physicsTick(dt) {
   if (visibleBlocks.length < 2) {
     const startIdx = Math.max(0, state.blocks.length - 10);
     for (let i = startIdx; i < state.blocks.length; i++) {
-      visibleBlocks.push({ block: state.blocks[i], originalIdx: i });
+      if (!state.blocks[i].isFalling) {
+        visibleBlocks.push({ block: state.blocks[i], originalIdx: i });
+      }
     }
   }
 
@@ -194,6 +205,9 @@ function physicsTick(dt) {
     weightedX += staticX * mass * leverage;
     weightedY += (b.y + BLOCK_H / 2) * mass;
   }
+
+  // If all blocks are falling, just return
+  if (totalMass === 0) return;
 
   const comX = (weightedX / totalWeightedMass) - pivotX; // Horizontal offset from pivot
   const comY = weightedY / totalMass;             // Average height
@@ -233,55 +247,61 @@ function physicsTick(dt) {
 
   state.towerAngle += state.towerAngularVelocity * dt;
 
-  // --- Collapse check (Strict Visual Bounds) ---
-  let isVisuallyOffScreen = false;
-
-  if (state.W <= 500) {
-    // Mobile: exact boundary check (-10 to W + 10)
-    for (let i = 0; i < state.blocks.length; i++) {
-      const b = state.blocks[i];
-      const sway = getBlockSwayX(b.y);
-      const leftEdge = b.x + sway;
-      const rightEdge = leftEdge + b.width;
-      if (leftEdge < -10 || rightEdge > state.W + 10) {
-        isVisuallyOffScreen = true;
-        break;
-      }
-    }
-  } else {
-    // Desktop: collapse check against central arcade playfield lane boundaries
-    const { laneLeft, laneRight } = getLaneBounds();
-
-    for (let i = 0; i < state.blocks.length; i++) {
-      const b = state.blocks[i];
-      const sway = getBlockSwayX(b.y);
-      const leftEdge = b.x + sway;
-      const rightEdge = leftEdge + b.width;
-      if (leftEdge < laneLeft - 10 || rightEdge > laneRight + 10) {
-        isVisuallyOffScreen = true;
-        break;
-      }
-    }
-  }
-
   // --- Teetering Bricks Integration inside Fixed Timestep (Jenga Physics) ---
-  for (let i = state.blocks.length - 1; i >= 0; i--) {
-    const b = state.blocks[i];
-    if (b && b.isTeetering) {
-      const type = BLOCK_TYPES[b.typeId] || BLOCK_TYPES.normal;
-      const tippedOver = PhysicsEngine.stepTeeteringBlock(b, type.friction, dt);
+  if (!isGameOver) {
+    for (let i = state.blocks.length - 1; i >= 0; i--) {
+      const b = state.blocks[i];
+      if (b && b.isTeetering) {
+        const type = BLOCK_TYPES[b.typeId] || BLOCK_TYPES.normal;
+        const tippedOver = PhysicsEngine.stepTeeteringBlock(b, type.friction, dt, state.towerAngle);
 
-      if (tippedOver) {
-        spawnFloatingText(state.W / 2, state.H * 0.4, "БЛОК УПАЛ! 💥", "#ff4d4d", 25 * uiScale());
-        handleGameOver(false);
-        break;
+        if (tippedOver) {
+          spawnFloatingText(state.W / 2, state.H * 0.4, "БЛОК УПАЛ! 💥", "#ff4d4d", 25 * uiScale());
+          handleGameOver(false);
+          break;
+        }
       }
     }
   }
 
-  // Combine angle check (for short towers) with strict visual check (for tall towers)
-  const criticalTilt = getCriticalTilt();
-  if (Math.abs(state.towerAngle) > criticalTilt || isVisuallyOffScreen) {
-    handleGameOver(true);
+  // --- Collapse check (Strict Visual Bounds) ---
+  if (!isGameOver) {
+    let isVisuallyOffScreen = false;
+
+    if (state.W <= 500) {
+      // Mobile: exact boundary check (-10 to W + 10)
+      for (let i = 0; i < state.blocks.length; i++) {
+        const b = state.blocks[i];
+        if (b.isFalling) continue;
+        const sway = getBlockSwayX(b.y);
+        const leftEdge = b.x + sway;
+        const rightEdge = leftEdge + b.width;
+        if (leftEdge < -10 || rightEdge > state.W + 10) {
+          isVisuallyOffScreen = true;
+          break;
+        }
+      }
+    } else {
+      // Desktop: collapse check against central arcade playfield lane boundaries
+      const { laneLeft, laneRight } = getLaneBounds();
+
+      for (let i = 0; i < state.blocks.length; i++) {
+        const b = state.blocks[i];
+        if (b.isFalling) continue;
+        const sway = getBlockSwayX(b.y);
+        const leftEdge = b.x + sway;
+        const rightEdge = leftEdge + b.width;
+        if (leftEdge < laneLeft - 10 || rightEdge > laneRight + 10) {
+          isVisuallyOffScreen = true;
+          break;
+        }
+      }
+    }
+
+    // Combine angle check (for short towers) with strict visual check (for tall towers)
+    const criticalTilt = getCriticalTilt();
+    if (Math.abs(state.towerAngle) > criticalTilt || isVisuallyOffScreen) {
+      handleGameOver(true);
+    }
   }
 }

@@ -14,6 +14,12 @@ export class CollapseAnimation {
 
     for (let i = 0; i < blocks.length; i++) {
       const b = blocks[i];
+      
+      // BAKE the visual sway and tilt into the block's physical properties
+      // so it doesn't instantly teleport to the center column on collapse!
+      b.x += b.y * Math.sin(towerAngle);
+      b.rot = towerAngle + (b.localTilt || (tiltDir * 0.08 * i));
+      
       b.isFalling = true;
       b.settled = false;
       b.isTeetering = false;
@@ -24,7 +30,6 @@ export class CollapseAnimation {
 
       b.vx = tiltDir * (1.8 + Math.random() * 2.2) * heightFactor + randomSpread;
       b.vy = -1.5 - Math.random() * 3.0; // Dynamic upward arc pop
-      b.rot = b.localTilt || (tiltDir * 0.08 * i);
       b.rotVel = tiltDir * (0.03 + Math.random() * 0.06);
     }
   }
