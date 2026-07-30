@@ -246,6 +246,7 @@ function physicsTick(dt) {
   }
 
   // Combine angle check (for short towers) with strict visual check (for tall towers)
+  const criticalTilt = getCriticalTilt();
   if (Math.abs(state.towerAngle) > criticalTilt || isVisuallyOffScreen) {
     handleGameOver();
   }
