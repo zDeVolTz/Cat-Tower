@@ -6,7 +6,7 @@ import { state, resetGameState, resetProgress, getFloorCount, getBlockSwayX } fr
 import { handleDrop } from "../game/physics.js";
 import { AudioEngine } from "../audio/audioEngine.js";
 
-let startPanel, overPanel, muteBtn, musicBtn, volumeSlider, scoreEl, floorLabelEl, levelBadgeEl, powerRowEl, finalScoreText, floorReachedText, bestScoreText, levelButtonsEls, resetProgressBtn;
+let startPanel, overPanel, musicBtn, volumeSlider, scoreEl, floorLabelEl, levelBadgeEl, powerRowEl, finalScoreText, floorReachedText, bestScoreText, levelButtonsEls, resetProgressBtn;
 
 function showConfirm(message, onYes) {
   const overlay = document.createElement("div");
@@ -29,7 +29,6 @@ function showConfirm(message, onYes) {
 export function initUI(canvasElement) {
   startPanel = document.getElementById("startPanel");
   overPanel = document.getElementById("overPanel");
-  muteBtn = document.getElementById("muteBtn");
   musicBtn = document.getElementById("musicBtn");
   volumeSlider = document.getElementById("volumeSlider");
   scoreEl = document.getElementById("score");
@@ -74,32 +73,68 @@ export function initUI(canvasElement) {
     });
   });
 
-  muteBtn.addEventListener("click", () => {
-    const isMuted = !AudioEngine.isMuted();
-    AudioEngine.setMuted(isMuted);
-    muteBtn.textContent = isMuted ? "🔇" : "🔊";
-  });
+  // Configure default 10% volume
+  AudioEngine.setVolume(0.10);
+
+  function syncAudioUI() {
+    const isMuted = AudioEngine.isMuted() || AudioEngine.getVolume() <= 0;
+    if (musicBtn) {
+      if (isMuted) {
+        musicBtn.classList.add("is-muted");
+        musicBtn.textContent = "🔇";
+        musicBtn.setAttribute("title", "Звук выключен (нажмите для включения)");
+      } else {
+        musicBtn.classList.remove("is-muted");
+        musicBtn.textContent = "🎵";
+        musicBtn.setAttribute("title", "Фоновая музыка и звуки");
+      }
+    }
+    if (volumeSlider) {
+      if (isMuted) {
+        volumeSlider.classList.add("is-muted");
+      } else {
+        volumeSlider.classList.remove("is-muted");
+        volumeSlider.value = AudioEngine.getVolume();
+      }
+    }
+  }
 
   if (musicBtn) {
     musicBtn.addEventListener("click", () => {
       AudioEngine.ensureAudio();
-      const isPlaying = AudioEngine.toggleMusic();
-      musicBtn.textContent = isPlaying ? "🎶" : "🎵";
+      const isCurrentlyMuted = AudioEngine.isMuted() || AudioEngine.getVolume() <= 0;
+      if (isCurrentlyMuted) {
+        AudioEngine.setMuted(false);
+        if (AudioEngine.getVolume() <= 0) {
+          AudioEngine.setVolume(0.10);
+        }
+        AudioEngine.playMusic();
+      } else {
+        AudioEngine.setMuted(true);
+      }
+      syncAudioUI();
     });
   }
 
   if (volumeSlider) {
+    volumeSlider.value = "0.10";
     volumeSlider.addEventListener("input", (e) => {
       AudioEngine.ensureAudio();
       const val = parseFloat(e.target.value);
-      AudioEngine.setVolume(val);
-      if (val === 0) {
-        if (musicBtn) musicBtn.textContent = "🔇";
+      if (val <= 0) {
+        AudioEngine.setMuted(true);
       } else {
-        if (musicBtn) musicBtn.textContent = AudioEngine.isMusicPlaying() ? "🎶" : "🎵";
+        if (AudioEngine.isMuted()) {
+          AudioEngine.setMuted(false);
+          AudioEngine.playMusic();
+        }
+        AudioEngine.setVolume(val);
       }
+      syncAudioUI();
     });
   }
+
+  syncAudioUI();
 
   canvasElement.addEventListener("pointerdown", () => {
     AudioEngine.ensureAudio();

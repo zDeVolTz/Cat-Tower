@@ -6,7 +6,7 @@ let audioCtx = null;
 let muted = false;
 let bgmAudio = null;
 let musicEnabled = false;
-let currentVolume = 0.45;
+let currentVolume = 0.10;
 
 export const AudioEngine = {
   initMusic(url = "./audio/bgm.mp3") {
