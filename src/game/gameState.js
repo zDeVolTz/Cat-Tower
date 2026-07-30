@@ -58,6 +58,7 @@ export const state = {
 
   // Gift & Milestone counters
   lastMilestoneFloor: 0,
+  gameOverTimer: 0, // Timer for showing game over screen
   milestoneBanner: null,
 
   // Visual Juice & Collapse Animation
@@ -233,8 +234,8 @@ export function resetGameState() {
   state.combo = 0;
   state.feverMode = false;
 
-  // Removed gifts
   state.lastMilestoneFloor = startFloor;
+  state.gameOverTimer = 1500; // 1.5 seconds default delay before Game Over screen
   state.milestoneBanner = null;
   state.shakeMag = 0;
   state.screenFlash = null;

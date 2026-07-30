@@ -14,7 +14,7 @@ export function update(dt) {
 
   // 1. Smooth Camera Lerp
   const isSingleFall = state.status === "collapsing" && (
-    state.blocks.filter(b => b.isFalling).length === 1 || state.debris.length > 0
+    state.blocks.filter(b => b.isFalling).length > 0 || state.debris.length > 0
   );
   const cameraLerpRate = isSingleFall ? 0.15 : 0.1;
   state.cameraY += (state.targetCameraY - state.cameraY) * cameraLerpRate * k;
@@ -31,16 +31,28 @@ export function update(dt) {
     }
 
     const fallingBlocks = state.blocks.filter(b => b.isFalling);
-    if (fallingBlocks.length === 1) {
-      state.targetCameraY = Math.max(0, fallingBlocks[0].y - state.H * 0.45);
+    if (fallingBlocks.length > 0) {
+      // If full explosion happened, targetCameraY was set to 0. 
+      // Otherwise (partial collapse/single fall), track the lowest falling block.
+      if (state.targetCameraY !== 0) {
+        const lowestY = Math.min(...fallingBlocks.map(b => b.y));
+        state.targetCameraY = Math.max(0, lowestY - state.H * 0.45);
+      }
     } else if (state.debris.length > 0 && fallingBlocks.length === 0) {
-      state.targetCameraY = Math.max(0, state.debris[0].y - state.H * 0.45);
+      if (state.targetCameraY !== 0) {
+        state.targetCameraY = Math.max(0, state.debris[0].y - state.H * 0.45);
+      }
     }
 
     // dt from main.js is in milliseconds, but physics expects SECONDS!
     const allCleared = PhysicsEngine.stepCollapsingBlocks(state.blocks, state.H, dt / 1000, state);
     const debrisActive = state.debris.length > 0;
-    if (allCleared && !debrisActive) {
+    
+    // User requested a configurable delay for showing the Game Over screen
+    state.gameOverTimer -= dt;
+    
+    // Game Over is shown only if minimum delay has passed AND screen is cleared
+    if (state.gameOverTimer <= 0 && allCleared && !debrisActive) {
       state.status = "over";
       updateHUD();
     }
