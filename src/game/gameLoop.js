@@ -13,13 +13,25 @@ export function update(dt) {
   const k = (dt * 60) / 1000;
 
   // 1. Smooth Camera Lerp
-  state.cameraY += (state.targetCameraY - state.cameraY) * 0.1 * k;
+  const isSingleFall = state.status === "collapsing" && (
+    state.blocks.filter(b => b.isFalling).length === 1 || state.debris.length > 0
+  );
+  const cameraLerpRate = isSingleFall ? 0.15 : 0.1;
+  state.cameraY += (state.targetCameraY - state.cameraY) * cameraLerpRate * k;
 
   // 2. Physical Inverted Pendulum & Collapse Dynamics
   if (state.status === "collapsing") {
+    const fallingBlocks = state.blocks.filter(b => b.isFalling);
+    if (fallingBlocks.length === 1) {
+      state.targetCameraY = Math.max(0, fallingBlocks[0].y - state.H * 0.45);
+    } else if (state.debris.length > 0 && fallingBlocks.length === 0) {
+      state.targetCameraY = Math.max(0, state.debris[0].y - state.H * 0.45);
+    }
+
     // dt from main.js is in milliseconds, but physics expects SECONDS!
     const allCleared = PhysicsEngine.stepCollapsingBlocks(state.blocks, state.H, dt / 1000, state);
-    if (allCleared) {
+    const debrisActive = state.debris.length > 0;
+    if (allCleared && !debrisActive) {
       state.status = "over";
       updateHUD();
     }
@@ -261,7 +273,7 @@ function physicsTick(dt) {
 
       if (tippedOver) {
         spawnFloatingText(state.W / 2, state.H * 0.4, "БЛОК УПАЛ! 💥", "#ff4d4d", 25 * uiScale());
-        handleGameOver();
+        handleGameOver(false);
         break;
       }
     }
@@ -270,6 +282,6 @@ function physicsTick(dt) {
   // Combine angle check (for short towers) with strict visual check (for tall towers)
   const criticalTilt = getCriticalTilt();
   if (Math.abs(state.towerAngle) > criticalTilt || isVisuallyOffScreen) {
-    handleGameOver();
+    handleGameOver(true);
   }
 }

@@ -3,6 +3,7 @@
  */
 import { BLOCK_H, GROUND_MARGIN, THEMES, PHYSICS_CONFIG, getLevelBlend } from "../game/config.js";
 import { state, getFloorCount, getBlockSwayX, getCriticalTilt, getLaneBounds } from "../game/gameState.js";
+import { checkTowerCenterOfMass } from "../game/physics.js";
 import { drawCatBlock } from "./drawCats.js";
 import { drawDecorations } from "./drawDecor.js";
 

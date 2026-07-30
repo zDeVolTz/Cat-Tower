@@ -3,7 +3,7 @@
  */
 import { LEVELS } from "../game/config.js";
 import { state, resetGameState, resetProgress, getFloorCount, getBlockSwayX, getCriticalTilt, getLaneBounds } from "../game/gameState.js";
-import { handleDrop } from "../game/physics.js";
+import { handleDrop, checkTowerCenterOfMass } from "../game/physics.js";
 import { AudioEngine } from "../audio/audioEngine.js";
 
 let startPanel, overPanel, musicBtn, volumeSlider, scoreEl, floorLabelEl, levelBadgeEl, powerRowEl, finalScoreText, floorReachedText, bestScoreText, levelButtonsEls, resetProgressBtn;

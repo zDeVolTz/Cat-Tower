@@ -48,8 +48,7 @@ export function evaluateBlockStability(blockX, blockW, blockY) {
 }
 
 export function checkTowerCenterOfMass() {
-  const result = PhysicsEngine.checkTowerCenterOfMass(state.blocks, state.columnLeft, state.columnWidth);
-  return result.isUnbalanced;
+  return PhysicsEngine.checkTowerCenterOfMass(state.blocks, state.columnLeft, state.columnWidth);
 }
 
 export function handleDrop() {
@@ -77,7 +76,7 @@ export function handleDrop() {
 
   if (landingY < currentTopFloorY - BLOCK_H * 0.8) {
     spawnDebris(dropX, state.mover ? state.mover.y : landingY, dropW, state.mover ? state.mover.color : "#fff", 1);
-    triggerTowerCollapse();
+    triggerTowerCollapse(false);
     return;
   }
 
@@ -211,11 +210,9 @@ export function handleDrop() {
 
   state.blocks.push(placed);
 
-  if (checkTowerCenterOfMass()) {
-    spawnFloatingText(state.W / 2, screenMidY - 40, "БАШНЯ ПЕРЕКОШЕНА! 💥", "#ff4d4d", 22 * uiScale());
-    triggerTowerCollapse();
-    return;
-  }
+  // We no longer trigger instant collapse on CoM offset.
+  // Instead, the Center of Mass solver provides comX for gravityTorque in gameLoop.js,
+  // making the tower lean naturally until it falls over.
 
   updateCameraTarget(placed.y);
   checkMilestone();
@@ -251,20 +248,23 @@ export function checkMilestone() {
  * Transitions state to "collapsing", starts block physical falling animation,
  * and defers Game Over screen until blocks finish falling off-screen!
  */
-export function triggerTowerCollapse() {
+export function triggerTowerCollapse(explodeTower = true) {
   if (state.status === "collapsing" || state.status === "over") return;
 
   state.status = "collapsing";
   state.finalFloor = getFloorCount();
   state.best = Math.max(state.best, state.score);
-  state.targetCameraY = 0; // Pan camera down to ground so player SEES the full tower collapse!
   Platform.sendScore(state.score);
   Platform.saveData({ best: state.best, maxUnlockedLevel: state.maxUnlockedLevel });
 
   triggerShake(14);
-  PhysicsEngine.startTowerCollapse(state.blocks, state.towerAngle);
+
+  if (explodeTower) {
+    state.targetCameraY = 0; // Pan camera down to ground so player SEES the full tower collapse!
+    PhysicsEngine.startTowerCollapse(state.blocks, state.towerAngle);
+  }
 }
 
-export function handleGameOver() {
-  triggerTowerCollapse();
+export function handleGameOver(explodeTower = true) {
+  triggerTowerCollapse(explodeTower);
 }

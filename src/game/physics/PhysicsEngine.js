@@ -8,6 +8,7 @@ import { CenterOfMassSolver } from "./CenterOfMassSolver.js";
 import { StabilitySolver } from "./StabilitySolver.js";
 import { TowerTiltSolver } from "./TowerTiltSolver.js";
 import { FallingSolver } from "./FallingSolver.js";
+import { CollapseAnimation } from "./CollapseAnimation.js";
 import { CatModifierSystem } from "./CatModifierSystem.js";
 
 export class PhysicsEngine {
@@ -52,11 +53,11 @@ export class PhysicsEngine {
   }
 
   static startTowerCollapse(blocks, towerAngle) {
-    return FallingSolver.startTowerCollapse(blocks, towerAngle);
+    return CollapseAnimation.startTowerCollapse(blocks, towerAngle);
   }
 
   static stepCollapsingBlocks(blocks, screenH, dt, stateObj = null) {
-    return FallingSolver.stepCollapsingBlocks(blocks, screenH, dt, stateObj);
+    return CollapseAnimation.stepCollapsingBlocks(blocks, screenH, dt, stateObj);
   }
 
   static applyCounterStamping(teeteringBlock, landingBlockMass) {

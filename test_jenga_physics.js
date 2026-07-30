@@ -66,11 +66,11 @@ try {
     { x: 130, width: 140, y: BLOCK_H, mass: 1.0 },
     { x: 130, width: 140, y: BLOCK_H * 2, mass: 1.0 }
   ];
-  assert(checkTowerCenterOfMass() === false, "J010: Perfectly centered 3-block tower does not trigger CoM collapse");
+  assert(checkTowerCenterOfMass().isUnbalanced === false, "J010: Perfectly centered 3-block tower does not trigger CoM collapse");
 
   state.blocks.push({ x: 230, width: 140, y: BLOCK_H * 3, mass: 2.2 });
   state.blocks.push({ x: 250, width: 140, y: BLOCK_H * 4, mass: 3.3 });
-  assert(checkTowerCenterOfMass() === true, "J011: Severely right-shifted heavy tower triggers CoM collapse");
+  assert(checkTowerCenterOfMass().isUnbalanced === true, "J011: Severely right-shifted heavy tower triggers CoM collapse");
 
   // ─── 4. CAT ATTRIBUTE CONTRACTS ───
   assert(BLOCK_TYPES.normal.overturnResistance === 1.0, "J012: Normal cat overturn resistance = 1.0");
