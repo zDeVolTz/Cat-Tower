@@ -218,15 +218,34 @@ function physicsTick(dt) {
 
   // --- Collapse check (Strict Visual Bounds) ---
   let isVisuallyOffScreen = false;
-  for (let i = 0; i < state.blocks.length; i++) {
-    const b = state.blocks[i];
-    const sway = getBlockSwayX(b.y);
-    const leftEdge = b.x + sway;
-    const rightEdge = leftEdge + b.width;
-    // If a block physically crosses the screen boundaries, trigger collapse
-    if (leftEdge < -10 || rightEdge > state.W + 10) {
-      isVisuallyOffScreen = true;
-      break;
+
+  if (state.W <= 500) {
+    // Mobile: exact boundary check (-10 to W + 10)
+    for (let i = 0; i < state.blocks.length; i++) {
+      const b = state.blocks[i];
+      const sway = getBlockSwayX(b.y);
+      const leftEdge = b.x + sway;
+      const rightEdge = leftEdge + b.width;
+      if (leftEdge < -10 || rightEdge > state.W + 10) {
+        isVisuallyOffScreen = true;
+        break;
+      }
+    }
+  } else {
+    // Desktop: collapse check against central arcade playfield lane boundaries
+    const laneWidth = Math.min(state.W * 0.7, Math.max(480, state.H * 0.65));
+    const laneLeft = state.W / 2 - laneWidth / 2;
+    const laneRight = state.W / 2 + laneWidth / 2;
+
+    for (let i = 0; i < state.blocks.length; i++) {
+      const b = state.blocks[i];
+      const sway = getBlockSwayX(b.y);
+      const leftEdge = b.x + sway;
+      const rightEdge = leftEdge + b.width;
+      if (leftEdge < laneLeft - 10 || rightEdge > laneRight + 10) {
+        isVisuallyOffScreen = true;
+        break;
+      }
     }
   }
 

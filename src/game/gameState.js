@@ -140,14 +140,24 @@ export function getTopFloorSwayOffset() {
  */
 export function getCriticalTilt() {
   const towerHeight = Math.max(46, getTopFloorY());
-  // Max sway allowed at the top is ~30% of screen width to ensure the whole block stays visible
-  const maxAllowedSway = state.W * 0.30;
   const baseCritical = 0.40; // From config (CRITICAL_TILT)
   
-  if (towerHeight > maxAllowedSway) {
-    return Math.min(baseCritical, Math.asin(maxAllowedSway / towerHeight));
+  if (state.W <= 500) {
+    // Mobile: exact experience (max 30% screen width sway)
+    const maxAllowedSway = state.W * 0.30;
+    if (towerHeight > maxAllowedSway) {
+      return Math.min(baseCritical, Math.asin(maxAllowedSway / towerHeight));
+    }
+    return baseCritical;
+  } else {
+    // Desktop: responsive critical tilt for central arcade playfield lane
+    const laneWidth = Math.min(state.W * 0.7, Math.max(480, state.H * 0.65));
+    const maxAllowedSway = laneWidth * 0.30;
+    if (towerHeight > maxAllowedSway) {
+      return Math.min(baseCritical, Math.asin(maxAllowedSway / towerHeight));
+    }
+    return baseCritical;
   }
-  return baseCritical;
 }
 
 export function resetGameState() {
