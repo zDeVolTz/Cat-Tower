@@ -94,16 +94,24 @@ export function getLevelBlend(floor) {
 
 export function lerp(a, b, t) { return a + (b - a) * t; }
 
-// Physics constants for Tower Balance (Inverted Pendulum Model)
+// Physics constants for Tower Balance & Jenga Teetering Physics
 export const PHYSICS_CONFIG = {
-  PHYSICS_SUBSTEP_MS: 4,        // Fixed timestep for stability (4ms = 250Hz)
+  PHYSICS_SUBSTEP_MS: 4,        // Fixed timestep for numerical stability (4ms = 250Hz)
   GRAVITY_FACTOR: 0.0006,       // How strongly gravity pulls off-center mass
   BASE_STIFFNESS: 0.8,          // Restoring spring force (foundation rigidity)
   BASE_DAMPING: 1.2,            // Angular velocity friction
   MAX_ANGULAR_VELOCITY: 0.015,  // Clamp: prevents single-frame explosions
   MAX_SAFE_TILT: 0.26,          // UI warning threshold (~15 degrees)
   CRITICAL_TILT: 0.40,          // Collapse threshold (~23 degrees)
-  DROP_IMPULSE_FACTOR: 0.0008   // How much a misaligned drop pushes the tower
+  DROP_IMPULSE_FACTOR: 0.0008,  // How much a misaligned drop pushes the tower sway
+
+  // Jenga Physics & Stability Parameters
+  STABILITY_OVERLAP_MIN: 0.30,  // Minimum footprint overlap ratio (30%)
+  WEIGHT_LENGTH_EXPONENT: 1.4,  // Exponential mass scaling by block width
+  COM_CRITICAL_OFFSET: 0.35,    // Cumulative Center of Mass offset collapse threshold (35%)
+  TEETER_BASE_ACCEL: 0.0012,    // Angular acceleration of overhanging teetering block
+  TEETER_MAX_ANGLE: 0.42,       // Critical local tilt (~24 deg) before block tips over
+  STAMP_RECOVERY_FORCE: 0.06    // Flattening force when landing on raised side of teetering block
 };
 
 export const BLOCK_TYPES = {
@@ -115,6 +123,10 @@ export const BLOCK_TYPES = {
     speedMult: 1,
     scoreMult: 1,
     weight: 1.0,
+    mass: 1.0,
+    friction: 1.0,
+    elasticity: 0.2,
+    overturnResistance: 1.0,
     unlockFloor: 0
   },
   light: {
@@ -125,6 +137,10 @@ export const BLOCK_TYPES = {
     speedMult: 0.88,
     scoreMult: 1,
     weight: 0.5,
+    mass: 0.5,
+    friction: 0.9,
+    elasticity: 0.4,
+    overturnResistance: 1.2,
     unlockFloor: 4
   },
   heavy: {
@@ -135,6 +151,10 @@ export const BLOCK_TYPES = {
     speedMult: 0.8,
     scoreMult: 2,
     weight: 2.2,
+    mass: 2.2,
+    friction: 1.2,
+    elasticity: 0.1,
+    overturnResistance: 0.8,
     unlockFloor: 7
   },
   slippery: {
@@ -145,6 +165,10 @@ export const BLOCK_TYPES = {
     speedMult: 1.25,
     scoreMult: 1.5,
     weight: 1.1,
+    mass: 1.1,
+    friction: 0.4,
+    elasticity: 0.1,
+    overturnResistance: 0.6,
     unlockFloor: 11
   },
   sticky: {
@@ -155,6 +179,10 @@ export const BLOCK_TYPES = {
     speedMult: 0.95,
     scoreMult: 0.9,
     weight: 1.0,
+    mass: 1.0,
+    friction: 2.0,
+    elasticity: 0.0,
+    overturnResistance: 2.0,
     unlockFloor: 15
   }
 };

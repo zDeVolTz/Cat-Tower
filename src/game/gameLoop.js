@@ -2,7 +2,7 @@
  * Physics loop update tick with Harmonic Procedural Sway, particle animation & camera lerp.
  */
 import { BLOCK_H, GROUND_MARGIN, BLOCK_TYPES, PHYSICS_CONFIG } from "./config.js";
-import { state, spawnParticles, getFloorCount, getBlockSwayX, getCriticalTilt, getMoverLimits, getLaneBounds } from "./gameState.js";
+import { state, spawnParticles, spawnFloatingText, uiScale, getFloorCount, getBlockSwayX, getCriticalTilt, getMoverLimits, getLaneBounds } from "./gameState.js";
 import { handleGameOver } from "./physics.js";
 
 // Accumulator for fixed timestep
@@ -240,6 +240,26 @@ function physicsTick(dt) {
       const rightEdge = leftEdge + b.width;
       if (leftEdge < laneLeft - 10 || rightEdge > laneRight + 10) {
         isVisuallyOffScreen = true;
+        break;
+      }
+    }
+  }
+
+  // --- Teetering Bricks Integration inside Fixed Timestep (Jenga Physics) ---
+  for (let i = state.blocks.length - 1; i >= 0; i--) {
+    const b = state.blocks[i];
+    if (b && b.isTeetering) {
+      const type = BLOCK_TYPES[b.typeId] || BLOCK_TYPES.normal;
+      const slideFactor = type.friction ? (1.0 / type.friction) : 1.0;
+
+      const accel = (P.TEETER_BASE_ACCEL * 60 * slideFactor * (1 + Math.abs(b.localTilt) * 2));
+      b.tiltVel += b.tiltDir * accel * dt;
+      b.localTilt += b.tiltVel * (dt * 60);
+
+      if (Math.abs(b.localTilt) >= P.TEETER_MAX_ANGLE) {
+        b.isTeetering = false;
+        spawnFloatingText(state.W / 2, state.H * 0.4, "БАШНЯ УПАЛА! 💥", "#ff4d4d", 25 * uiScale());
+        handleGameOver();
         break;
       }
     }

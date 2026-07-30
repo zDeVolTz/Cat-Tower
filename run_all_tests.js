@@ -35,6 +35,7 @@ console.log("===================================================================
 // Dynamically import modular test suites AFTER window is globally defined
 await import("./test_game_mechanics.js");
 await import("./test_physics_engine.js");
+await import("./test_jenga_physics.js");
 await import("./test_edge_cases_and_integration.js");
 
 console.log("\n======================================================================");

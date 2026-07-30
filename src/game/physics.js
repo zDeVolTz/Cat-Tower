@@ -64,6 +64,92 @@ export function findSurfaceYForFootprint(leftX, rightX) {
   return highestY;
 }
 
+/**
+ * Evaluates footprint stability of a block landing at blockX with width blockW on top of surface at blockY.
+ * Returns overlap ratio, stability flag, corner pivot X, and slide/fall direction.
+ */
+export function evaluateBlockStability(blockX, blockW, blockY) {
+  const blockLeft = blockX;
+  const blockRight = blockX + blockW;
+  const blockCenterX = blockX + blockW / 2;
+
+  let supportLeft = Infinity;
+  let supportRight = -Infinity;
+  let foundSupport = false;
+
+  for (let i = 0; i < state.blocks.length; i++) {
+    const b = state.blocks[i];
+    if (Math.abs((b.y + BLOCK_H) - blockY) < 2) {
+      const sway = getBlockSwayX(b.y);
+      const bLeft = b.x + sway;
+      const bRight = bLeft + b.width;
+
+      if (blockLeft < bRight - 0.5 && blockRight > bLeft + 0.5) {
+        supportLeft = Math.min(supportLeft, bLeft);
+        supportRight = Math.max(supportRight, bRight);
+        foundSupport = true;
+      }
+    }
+  }
+
+  // Base block at y=0 is supported by ground
+  if (!foundSupport && blockY <= 0) {
+    return { stable: true, overlapRatio: 1.0, pivotX: blockCenterX, slideDirection: 0 };
+  }
+
+  if (!foundSupport) {
+    return { stable: false, overlapRatio: 0, pivotX: blockCenterX, slideDirection: blockCenterX > state.W / 2 ? 1 : -1 };
+  }
+
+  const overlapLeft = Math.max(blockLeft, supportLeft);
+  const overlapRight = Math.min(blockRight, supportRight);
+  const overlap = Math.max(0, overlapRight - overlapLeft);
+  const overlapRatio = overlap / blockW;
+
+  const minOverlap = PHYSICS_CONFIG.STABILITY_OVERLAP_MIN || 0.30;
+  const isRightHang = (blockRight - supportRight) > (supportLeft - blockLeft);
+  const slideDirection = isRightHang ? 1 : -1;
+  const pivotX = isRightHang ? supportRight : supportLeft;
+
+  return {
+    stable: overlapRatio >= minOverlap,
+    overlapRatio,
+    pivotX,
+    slideDirection
+  };
+}
+
+/**
+ * Calculates the cumulative Center of Mass (CoM) of the tower.
+ * Returns true if tower is critically unbalanced.
+ */
+export function checkTowerCenterOfMass() {
+  if (state.blocks.length <= 2) return false;
+
+  const baseCenter = state.columnLeft + state.columnWidth / 2;
+  let totalWeightedMass = 0;
+  let weightedX = 0;
+
+  for (let i = 0; i < state.blocks.length; i++) {
+    const b = state.blocks[i];
+    const mass = b.mass || 1.0;
+    const heightLeverage = 1.0 + (b.y / 600) * 1.0; // Smooth height leverage
+    const effectiveMass = mass * heightLeverage;
+    const centerX = b.x + b.width / 2;
+
+    totalWeightedMass += effectiveMass;
+    weightedX += centerX * effectiveMass;
+  }
+
+  if (totalWeightedMass <= 0) return false;
+
+  const comX = weightedX / totalWeightedMass;
+  const comOffset = Math.abs(comX - baseCenter) / state.columnWidth;
+  const maxOffset = PHYSICS_CONFIG.COM_CRITICAL_OFFSET || 0.35;
+
+  return comOffset > maxOffset;
+}
+
 export function handleDrop() {
   if (state.status !== "playing" || !state.mover) return;
 
@@ -75,28 +161,55 @@ export function handleDrop() {
 
   const screenMidY = state.H - GROUND_MARGIN - ((state.mover ? state.mover.y : getTopFloorY()) - state.cameraY) - BLOCK_H / 2;
 
-  // 4. Find highest supporting surface Y underneath footprint
   const currentTopFloorY = getTopFloorY();
   let landingY = findSurfaceYForFootprint(dropX, dropX + dropW);
   const moverCenter = dropX + dropW / 2;
   const isPerfectPlacement = Math.abs(moverCenter - visualTop.centerX) <= PERFECT_TOLERANCE_BASE;
 
-  // If player achieved a Perfect placement or landed on top of the tower stack,
-  // guarantee landingY is at least currentTopFloorY to prevent false Game Over
   if (isPerfectPlacement && landingY < currentTopFloorY) {
     landingY = currentTopFloorY;
   }
 
-  // 3. Convert absolute dropX to local un-swayed coordinate based on landingY sway.
   const landingSway = getBlockSwayX(landingY);
   const localDropX = dropX - landingSway;
 
-  // If block lands below top floor level (because player dropped it into empty space),
-  // it means the block MISSED the top of the tower! Trigger Game Over!
   if (landingY < currentTopFloorY - BLOCK_H * 0.8) {
     spawnDebris(dropX, state.mover ? state.mover.y : landingY, dropW, state.mover ? state.mover.color : "#fff", 1);
     handleGameOver();
     return;
+  }
+
+  // Calculate mass for this block
+  const blockMass = state.mover.mass || (type.weight * (state.mover.isGolden ? 1.5 : 1.0));
+
+  // Evaluate overlap stability footprint
+  const stability = evaluateBlockStability(localDropX, dropW, landingY);
+  const isUnstableDrop = !stability.stable;
+
+  // Counter-stamping check: Check if new block stamps down any teetering block below
+  for (let i = 0; i < state.blocks.length; i++) {
+    const b = state.blocks[i];
+    if (b.isTeetering) {
+      const isLandedOnRaisedSide = (b.tiltDir > 0 && moverCenter < b.tiltPivotX + landingSway) ||
+                                   (b.tiltDir < 0 && moverCenter > b.tiltPivotX + landingSway);
+
+      if (isLandedOnRaisedSide) {
+        const massRatio = blockMass / (b.mass || 1.0);
+        const stampImpulse = (PHYSICS_CONFIG.STAMP_RECOVERY_FORCE || 0.06) * Math.max(0.8, massRatio);
+
+        b.tiltVel -= b.tiltDir * stampImpulse;
+        b.localTilt -= b.tiltDir * (stampImpulse * 1.5);
+
+        if ((b.tiltDir > 0 && b.localTilt <= 0) || (b.tiltDir < 0 && b.localTilt >= 0)) {
+          b.isTeetering = false;
+          b.localTilt = 0;
+          b.tiltVel = 0;
+          b.settled = true;
+          spawnFloatingText(dropX + dropW / 2, screenMidY - 30, "ВЫРАВНЯЛ! 🔨✨", "#7fd8e8", 20 * uiScale());
+          spawnParticles(dropX + dropW / 2, screenMidY, 16, ["#7fd8e8", "#ffffff"], 3.5, 500);
+        }
+      }
+    }
   }
 
   const placed = {
@@ -106,28 +219,48 @@ export function handleDrop() {
     typeId: state.mover.typeId,
     isGolden: state.mover.isGolden,
     color: state.mover.color,
-    squishX: 1.12, // Subtle bounce to prevent jarring size changes
+    mass: blockMass,
+    settled: !isUnstableDrop,
+    isTeetering: isUnstableDrop,
+    localTilt: isUnstableDrop ? stability.slideDirection * 0.02 : 0,
+    tiltVel: isUnstableDrop ? stability.slideDirection * 0.001 : 0,
+    tiltDir: stability.slideDirection,
+    tiltPivotX: stability.pivotX,
+    squishX: 1.12,
     squishY: 0.90,
     squishVelX: 0,
     squishVelY: 0
   };
 
-  const floorCount = getFloorCount();
+  if (isUnstableDrop) {
+    state.combo = 0;
+    state.feverMode = false;
 
-  if (isPerfectPlacement) {
+    spawnFloatingText(dropX + dropW / 2, screenMidY, "ЗАВАЛИВАЕТСЯ! ⚠️", "#ffa834", 18 * uiScale());
+    spawnParticles(dropX + dropW / 2, screenMidY, 12, ["#ffa834", "#ffffff"], 3, 400);
+    triggerShake(8);
+    AudioEngine.playNormalDropSound();
+  } else if (isPerfectPlacement) {
     state.combo++;
     if (state.combo >= 4) {
       state.feverMode = true;
     }
 
-    // PERFECT DROP STABILIZES TOWER SWAY SMOOTHLY!
-    // Set smooth returning velocity to straighten tower over time without ANY 1-frame teleportation jumps!
     state.towerAngularVelocity = -state.towerAngle * 1.8;
+
+    // Flatten all lower teetering blocks on perfect combo
+    for (let i = 0; i < state.blocks.length; i++) {
+      if (state.blocks[i].isTeetering) {
+        state.blocks[i].isTeetering = false;
+        state.blocks[i].localTilt = 0;
+        state.blocks[i].tiltVel = 0;
+        state.blocks[i].settled = true;
+      }
+    }
 
     const comboText = state.combo >= 4 ? `ГИПЕР-КОМБО ×${state.combo}! 🔥` : state.combo >= 2 ? `ОТЛИЧНО! ×${state.combo}` : "ИДЕАЛЬНЫЙ БАЛАНС! ✨";
     const comboColor = state.feverMode ? "#ffd700" : "#ffe08a";
 
-    // Particles use absolute coordinates
     spawnFloatingText(dropX + dropW / 2, screenMidY, comboText, comboColor, (state.combo >= 4 ? 22 : 18) * uiScale());
     spawnParticles(dropX + dropW / 2, screenMidY, 18, [type.palette[0], "#ffffff", "#ffe08a"], 3.5, 500);
     AudioEngine.playPerfectSound(state.combo);
@@ -135,33 +268,25 @@ export function handleDrop() {
     state.combo = 0;
     state.feverMode = false;
 
-    // Check if player placed block on the opposite side of tilt to counter-balance
     const isCounterDrop = (state.towerAngle > 0.015 && moverCenter < visualTop.centerX - 4) ||
                           (state.towerAngle < -0.015 && moverCenter > visualTop.centerX + 4);
 
     if (isCounterDrop) {
-      // Counter-balance placement smoothly brakes wobble & pulls tower back towards center
       state.towerAngularVelocity = -state.towerAngle * 1.5;
       
-      spawnFloatingText(dropX + dropW / 2, screenMidY, "БАЛАНС! ⚖️", "#7fd8e8", 18 * uiScale());
+      spawnFloatingText(dropX + dropW / 2, screenMidY, "СПАСЕНИЕ БАЛАНСА! ⚖️", "#7fd8e8", 18 * uiScale());
       spawnParticles(dropX + dropW / 2, screenMidY, 14, ["#7fd8e8", "#ffffff"], 3.5, 500);
       AudioEngine.playPerfectSound(1);
     } else {
       AudioEngine.playNormalDropSound();
 
-      // Misalignment is calculated relative to the BASE pivot (column center), 
-      // NOT the swaying top block. This guarantees that placing a block on the right 
-      // side of the screen ALWAYS pushes the tower right, which matches player intuition!
       const pivotX = state.columnLeft + state.columnWidth / 2;
       const misalignment = moverCenter - pivotX;
       
-      const mass = type.weight * (state.mover.isGolden ? 1.5 : 1.0);
-      
-      // Moment of Inertia grows with tower height, so tall towers are harder to disturb
       const towerHeight = Math.max(BLOCK_H, getTopFloorY());
       const totalBlocks = state.blocks.length;
       const momentOfInertia = totalBlocks * towerHeight * 0.01 + 1;
-      const impulse = (misalignment * mass * (PHYSICS_CONFIG.DROP_IMPULSE_FACTOR * 0.35)) / momentOfInertia;
+      const impulse = (misalignment * blockMass * (PHYSICS_CONFIG.DROP_IMPULSE_FACTOR * 0.35)) / momentOfInertia;
 
       state.towerAngularVelocity += impulse;
       state.towerAngularVelocity = Math.max(-PHYSICS_CONFIG.MAX_ANGULAR_VELOCITY, Math.min(PHYSICS_CONFIG.MAX_ANGULAR_VELOCITY, state.towerAngularVelocity));
@@ -170,12 +295,6 @@ export function handleDrop() {
     }
   }
 
-  // Score calculation — combo stays additive (it's the direct skill signal), while
-  // fever/type/golden/guide-line bonuses combine into ONE multiplier capped at x4.
-  // Previously these multiplied on top of each other uncapped (up to x176 for a big
-  // combo + fever + heavy cat + golden + guide-lines at once), which made the number
-  // both unreadable and made "inside the guide lines" (which triggers on almost every
-  // careful drop) blow the score up disproportionately versus actual skill (combo).
   const isInsideGuideLines = (dropX >= state.columnLeft - 4) && (dropX + dropW <= state.columnRight + 4);
 
   let base = 1;
@@ -201,6 +320,13 @@ export function handleDrop() {
   }
 
   state.blocks.push(placed);
+
+  // Check cumulative Center of Mass
+  if (checkTowerCenterOfMass()) {
+    spawnFloatingText(state.W / 2, screenMidY - 40, "БАШНЯ ПЕРЕКОШЕНА! 💥", "#ff4d4d", 22 * uiScale());
+    handleGameOver();
+    return;
+  }
 
   updateCameraTarget(placed.y);
   checkMilestone();

@@ -3,9 +3,22 @@
  */
 import {
   BLOCK_TYPES, UNLOCK_ORDER, LEVELS,
-  BLOCK_H, GROUND_MARGIN, CAMERA_TRAIL_FRACTION,
+  BLOCK_H, GROUND_MARGIN, CAMERA_TRAIL_FRACTION, PHYSICS_CONFIG,
   getLevelBlend, lerp
 } from "./config.js";
+
+/**
+ * Calculates effective mass of a block based on cat type, golden status, and block width ratio.
+ */
+export function calculateBlockMass(typeId, isGolden, blockWidth) {
+  const type = BLOCK_TYPES[typeId] || BLOCK_TYPES.normal;
+  const baseMass = type.mass || type.weight || 1.0;
+  const colW = state.columnWidth || 140;
+  const fraction = Math.max(0.1, blockWidth / colW);
+  let mass = baseMass * Math.pow(fraction, PHYSICS_CONFIG.WEIGHT_LENGTH_EXPONENT || 1.4);
+  if (isGolden) mass *= 1.5;
+  return mass;
+}
 import { AudioEngine } from "../audio/audioEngine.js";
 import { Platform } from "../sdk/youtubeSdk.js";
 
@@ -194,6 +207,8 @@ export function resetGameState() {
     color: "#f4e4c1",
     typeId: "normal",
     isGolden: false,
+    mass: calculateBlockMass("normal", false, state.columnWidth),
+    settled: true,
     squishX: 1,
     squishY: 1,
     squishVelX: 0,
