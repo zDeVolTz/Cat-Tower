@@ -13,14 +13,14 @@ export function update(dt) {
   const k = (dt * 60) / 1000;
 
   // 1. Smooth Camera Lerp
-  const isSingleFall = state.status === "collapsing" && (
+  const isSingleFall = (state.status === "collapsing" || state.status === "over") && (
     state.blocks.filter(b => b.isFalling).length > 0 || state.debris.length > 0
   );
   const cameraLerpRate = isSingleFall ? 0.15 : 0.1;
   state.cameraY += (state.targetCameraY - state.cameraY) * cameraLerpRate * k;
 
   // 2. Physical Inverted Pendulum & Collapse Dynamics
-  if (state.status === "collapsing") {
+  if (state.status === "collapsing" || state.status === "over") {
     // Keep swaying the remaining tower during Game Over!
     physicsAccumulator += dt;
     const substepMs = PHYSICS_CONFIG.PHYSICS_SUBSTEP_MS;
@@ -45,16 +45,15 @@ export function update(dt) {
     }
 
     // dt from main.js is in milliseconds, but physics expects SECONDS!
-    const allCleared = PhysicsEngine.stepCollapsingBlocks(state.blocks, state.H, dt / 1000, state);
-    const debrisActive = state.debris.length > 0;
+    PhysicsEngine.stepCollapsingBlocks(state.blocks, state.H, dt / 1000, state);
     
-    // User requested a configurable delay for showing the Game Over screen
-    state.gameOverTimer -= dt;
-    
-    // Game Over is shown only if minimum delay has passed AND screen is cleared
-    if (state.gameOverTimer <= 0 && allCleared && !debrisActive) {
-      state.status = "over";
-      updateHUD();
+    // User requested EXACT timer for showing the Game Over screen
+    if (state.status === "collapsing") {
+      state.gameOverTimer -= dt;
+      if (state.gameOverTimer <= 0) {
+        state.status = "over";
+        updateHUD();
+      }
     }
   } else if (state.status === "playing" && state.blocks.length > 1) {
     physicsAccumulator += dt;
