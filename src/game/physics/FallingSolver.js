@@ -13,16 +13,14 @@ export class FallingSolver {
   static stepTeeteringBlock(block, friction, dt, towerAngle = 0) {
     if (!block || !block.isTeetering) return false;
 
-    // dt is in SECONDS
-    const k = dt * 60; // k is ~1.0 at 60 FPS
-
     const P = PhysicsConfig;
     const slideFactor = friction ? (1.0 / friction) : 1.0;
 
-    // accel is per-frame (assuming k=1 for 60fps)
-    const accel = P.TEETER_BASE_ACCEL * 60 * slideFactor * (1 + Math.abs(block.localTilt) * 2);
-    block.tiltVel += block.tiltDir * accel * k;
-    block.localTilt += block.tiltVel * k;
+    // Proper integration in SECONDS for smooth, cinematic teetering.
+    // The user wants time to stabilize the block.
+    const accel = P.TEETER_BASE_ACCEL * slideFactor * (1 + Math.abs(block.localTilt) * 2);
+    block.tiltVel += block.tiltDir * accel * dt;
+    block.localTilt += block.tiltVel * dt;
 
     // Stage 2: Returns true when tilt exceeds TEETER_MAX_ANGLE (~24 deg)
     const exceeds = Math.abs(block.localTilt) >= P.TEETER_MAX_ANGLE;

@@ -83,9 +83,9 @@ try {
   assert(teeterBlock.isTeetering === true, "J013: Block with < 20% overlap is teetering");
   assert(teeterBlock.settled === false, "J014: Teetering block is not settled");
 
-  // Step the block physically a few times to exceed TEETER_MAX_ANGLE
+  // Step the block physically a few times to exceed TEETER_MAX_ANGLE (takes ~2 seconds now)
   let tipped = false;
-  for (let i = 0; i < 60; i++) {
+  for (let i = 0; i < 200; i++) {
     if (PhysicsEngine.stepTeeteringBlock(teeterBlock, 1.0, 0.016)) {
       tipped = true;
       break;

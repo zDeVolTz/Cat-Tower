@@ -15,7 +15,7 @@ export const PhysicsConfig = {
   STABILITY_OVERLAP_MIN: 0.30,  // Minimum footprint overlap ratio (30%)
   WEIGHT_LENGTH_EXPONENT: 1.4,  // Exponential mass scaling by block width
   COM_CRITICAL_OFFSET: 0.35,    // Cumulative Center of Mass offset collapse threshold (35%)
-  TEETER_BASE_ACCEL: 0.0012,    // Angular acceleration of overhanging teetering block
+  TEETER_BASE_ACCEL: 0.25,      // Angular acceleration (rad/s^2) for cinematic slow teetering
   TEETER_MAX_ANGLE: 0.42,       // Critical local tilt (~24 deg) before block tips over
   STAMP_RECOVERY_FORCE: 0.06,   // Flattening force when landing on raised side of teetering block
 
