@@ -96,10 +96,25 @@ try {
   const allCleared = PhysicsEngine.stepCollapsingBlocks(state.blocks, 700, 0.016);
   assert(typeof allCleared === "boolean", "J018: Collapsing step returns boolean indicating off-screen state");
 
-  // ─── 7. SINGLE BLOCK OVERHANG TIPPING FIX (USER BUG COVERAGE) ───
+  // ─── 7. SINGLE BLOCK OVERHANG TIPPING & COLLAPSE SEQUENCE (USER BUG COVERAGE) ───
   const teeterBlock = { isTeetering: true, localTilt: 0.45, tiltVel: 0, tiltDir: 1, typeId: "normal" };
   const tipped = PhysicsEngine.stepTeeteringBlock(teeterBlock, 1.0, 0.016);
   assert(tipped === true && teeterBlock.isFalling === true && teeterBlock.vx > 0, "J019: Single overhanging block tipping over converts to physical falling trajectory");
+
+  resetGameState();
+  state.status = "playing";
+  state.blocks = [{ x: 130, width: 140, y: 100, isFalling: true, vy: 5, rotVel: 0.02 }];
+  PhysicsEngine.startTowerCollapse(state.blocks, 0.2);
+  
+  // Step simulation frames until collapse finishes
+  for (let frame = 0; frame < 100; frame++) {
+    const done = PhysicsEngine.stepCollapsingBlocks(state.blocks, 700, 0.016);
+    if (done) {
+      state.status = "over";
+      break;
+    }
+  }
+  assert(state.status === "over", "J020: Full tower collapse animation completes and transitions game status to 'over'");
 
 } catch (err) {
   assert(false, "EX-RUNTIME: Uncaught exception in Jenga physics test suite", err.stack || String(err));

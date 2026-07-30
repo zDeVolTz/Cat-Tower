@@ -4,6 +4,7 @@
 import { BLOCK_H, GROUND_MARGIN, BLOCK_TYPES, PHYSICS_CONFIG } from "./config.js";
 import { state, spawnParticles, spawnFloatingText, uiScale, getFloorCount, getBlockSwayX, getCriticalTilt, getMoverLimits, getLaneBounds } from "./gameState.js";
 import { handleGameOver, PhysicsEngine } from "./physics.js";
+import { updateHUD } from "../ui/uiManager.js";
 
 // Accumulator for fixed timestep
 let physicsAccumulator = 0;
@@ -19,6 +20,7 @@ export function update(dt) {
     const allCleared = PhysicsEngine.stepCollapsingBlocks(state.blocks, state.H, dt);
     if (allCleared) {
       state.status = "over";
+      updateHUD();
     }
   } else if (state.status === "playing" && state.blocks.length > 1) {
     physicsAccumulator += dt;

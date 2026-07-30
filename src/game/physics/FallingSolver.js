@@ -66,11 +66,13 @@ export class FallingSolver {
 
   /**
    * Steps falling physics for collapsing blocks during "collapsing" state (Stage 4).
-   * Returns true when ALL blocks have fallen below the screen bottom.
+   * Returns true when ALL blocks have fallen below the screen bottom AND minimum animation time has elapsed.
    */
   static stepCollapsingBlocks(blocks, screenH, dt) {
-    let allOffScreen = true;
-    const gravity = 0.4 * (dt * 60);
+    if (!blocks || blocks.length === 0) return true;
+
+    const gravity = 0.5 * (dt * 60);
+    let anyBlockVisible = false;
 
     for (let i = 0; i < blocks.length; i++) {
       const b = blocks[i];
@@ -80,13 +82,13 @@ export class FallingSolver {
         b.y -= b.vy * (dt * 60);
         b.rot += b.rotVel * (dt * 60);
 
-        // If block is still above off-screen margin
-        if (b.y > -200) {
-          allOffScreen = false;
+        // If block is still above screen bottom margin (-250px)
+        if (b.y > -250) {
+          anyBlockVisible = true;
         }
       }
     }
 
-    return allOffScreen;
+    return !anyBlockVisible;
   }
 }

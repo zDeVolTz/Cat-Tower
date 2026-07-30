@@ -60,7 +60,8 @@ export const state = {
   lastMilestoneFloor: 0,
   milestoneBanner: null,
 
-  // Visual Juice
+  // Visual Juice & Collapse Animation
+  collapseTimer: 0,
   shakeMag: 0,
   screenFlash: null,
   unlockAnnounced: {},
@@ -218,6 +219,7 @@ export function resetGameState() {
   state.debris = [];
   state.particles = [];
   state.floatingTexts = [];
+  state.collapseTimer = 0;
 
   const topY = getTopFloorY();
   state.targetCameraY = Math.max(0, topY - state.H * CAMERA_TRAIL_FRACTION);
