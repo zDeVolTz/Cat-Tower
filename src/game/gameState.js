@@ -63,10 +63,40 @@ export function uiScale() {
 }
 
 export function updateColumnBounds() {
-  // Mobile-optimized column width (~35% of viewport width, max 140px on mobile)
-  state.columnWidth = Math.max(120, Math.min(state.W * 0.35, 140));
+  if (state.W <= 500) {
+    // Mobile: exact experience approved by user (max 140px)
+    state.columnWidth = Math.max(120, Math.min(state.W * 0.35, 140));
+  } else {
+    // Desktop: scaled column width for desktop monitors (~150px - 195px)
+    state.columnWidth = Math.max(150, Math.min(state.H * 0.22, 195));
+  }
   state.columnLeft = state.W / 2 - state.columnWidth / 2;
   state.columnRight = state.W / 2 + state.columnWidth / 2;
+}
+
+export function getMoverLimits() {
+  if (state.W <= 500) {
+    // Mobile: full screen width
+    const w = state.mover ? state.mover.width : 100;
+    return {
+      left: -w * 0.9,
+      right: state.W - w * 0.1,
+      spawnLeft: -w,
+      spawnRight: state.W
+    };
+  } else {
+    // Desktop: focused central arcade playfield lane (~480-560px wide)
+    const laneWidth = Math.min(state.W * 0.7, Math.max(480, state.H * 0.65));
+    const laneLeft = state.W / 2 - laneWidth / 2;
+    const laneRight = state.W / 2 + laneWidth / 2;
+    const w = state.mover ? state.mover.width : 100;
+    return {
+      left: laneLeft - w * 0.9,
+      right: laneRight - w * 0.1,
+      spawnLeft: laneLeft - w,
+      spawnRight: laneRight
+    };
+  }
 }
 
 /**
@@ -245,11 +275,15 @@ export function spawnMover() {
   const color = type.palette[state.blocks.length % type.palette.length];
   const spawnY = getTopFloorY();
 
+  // On desktop, spawn within central arcade lane bounds for focused gameplay
+  const limits = getMoverLimits();
+  const spawnX = fromLeft ? limits.spawnLeft : limits.spawnRight;
+
   state.mover = {
     kind: "block",
     typeId: chosenTypeId,
     isGolden,
-    x: fromLeft ? -moverWidth : state.W,
+    x: spawnX,
     width: moverWidth,
     y: spawnY,
     dir: fromLeft ? 1 : -1,

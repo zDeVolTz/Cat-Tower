@@ -2,7 +2,7 @@
  * Physics loop update tick with Harmonic Procedural Sway, particle animation & camera lerp.
  */
 import { BLOCK_H, BLOCK_TYPES, PHYSICS_CONFIG, LEVELS } from "./config.js";
-import { state, spawnParticles, getFloorCount, getBlockSwayX, getCriticalTilt } from "./gameState.js";
+import { state, spawnParticles, getFloorCount, getBlockSwayX, getCriticalTilt, getMoverLimits } from "./gameState.js";
 import { handleGameOver } from "./physics.js";
 
 // Accumulator for fixed timestep
@@ -30,15 +30,14 @@ export function update(dt) {
   // 3. Mover Movement & Golden Sparkles
   if (state.status === "playing" && state.mover) {
     state.mover.x += state.mover.dir * state.mover.speed * k;
-    const leftLimit = -state.mover.width * 0.9;
-    const rightLimit = state.W - state.mover.width * 0.1;
+    const limits = getMoverLimits();
 
-    if (state.mover.x < leftLimit) {
-      state.mover.x = leftLimit;
+    if (state.mover.x < limits.left) {
+      state.mover.x = limits.left;
       state.mover.dir = 1;
     }
-    if (state.mover.x > rightLimit) {
-      state.mover.x = rightLimit;
+    if (state.mover.x > limits.right) {
+      state.mover.x = limits.right;
       state.mover.dir = -1;
     }
 
