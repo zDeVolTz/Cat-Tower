@@ -1,12 +1,12 @@
 /**
- * Tetris Column Physics Engine with Harmonic Procedural Sway reactions.
+ * Unified Physics Interface for Cat Tower Stack.
+ * Delegates calculations to modular solvers in src/game/physics/
  */
-import { BLOCK_H, GROUND_MARGIN, CAMERA_TRAIL_FRACTION, PERFECT_TOLERANCE_BASE, BLOCK_TYPES, THEMES, PHYSICS_CONFIG } from "./config.js";
+import { BLOCK_H, GROUND_MARGIN, CAMERA_TRAIL_FRACTION, PERFECT_TOLERANCE_BASE, BLOCK_TYPES, THEMES } from "./config.js";
 import {
   state,
   spawnMover,
   triggerShake,
-  triggerScreenFlash,
   spawnDebris,
   spawnParticles,
   spawnFloatingText,
@@ -18,11 +18,10 @@ import {
 } from "./gameState.js";
 import { AudioEngine } from "../audio/audioEngine.js";
 import { Platform } from "../sdk/youtubeSdk.js";
-import { updateHUD } from "../ui/uiManager.js";
+import { PhysicsEngine } from "./physics/PhysicsEngine.js";
 
-/**
- * Calculates the exact VISUAL screen bounds of the top block taking into account harmonic tower sway.
- */
+export { PhysicsEngine };
+
 export function getVisualTopBlockBounds() {
   if (state.blocks.length === 0) {
     return { left: state.columnLeft, right: state.columnRight, centerX: state.W / 2, width: state.columnWidth };
@@ -40,114 +39,17 @@ export function getVisualTopBlockBounds() {
   };
 }
 
-/**
- * Finds the highest supporting surface Y coordinate under footprint [leftX, rightX].
- */
 export function findSurfaceYForFootprint(leftX, rightX) {
-  let highestY = 0;
-
-  // Scan ALL blocks in the tower to find the MAXIMUM supporting surface Y coordinate.
-  // Avoids breaking early if array order differs from height order or if blocks overlap on sides.
-  for (let i = 0; i < state.blocks.length; i++) {
-    const b = state.blocks[i];
-    const sway = getBlockSwayX(b.y); // match the block's actual on-screen (swayed) position
-    const blockLeft = b.x + sway;
-    const blockRight = blockLeft + b.width;
-
-    // Subpixel tolerance (0.5px) ensures any real footprint overlap lands cleanly without false misses
-    if (leftX < blockRight - 0.5 && rightX > blockLeft + 0.5) {
-      const surfaceY = b.y + BLOCK_H;
-      if (surfaceY > highestY) highestY = surfaceY;
-    }
-  }
-
-  return highestY;
+  return PhysicsEngine.findSurfaceYForFootprint(state.blocks, state.towerAngle, leftX, rightX);
 }
 
-/**
- * Evaluates footprint stability of a block landing at blockX with width blockW on top of surface at blockY.
- * Returns overlap ratio, stability flag, corner pivot X, and slide/fall direction.
- */
 export function evaluateBlockStability(blockX, blockW, blockY) {
-  const blockLeft = blockX;
-  const blockRight = blockX + blockW;
-  const blockCenterX = blockX + blockW / 2;
-
-  let supportLeft = Infinity;
-  let supportRight = -Infinity;
-  let foundSupport = false;
-
-  for (let i = 0; i < state.blocks.length; i++) {
-    const b = state.blocks[i];
-    if (Math.abs((b.y + BLOCK_H) - blockY) < 2) {
-      const sway = getBlockSwayX(b.y);
-      const bLeft = b.x + sway;
-      const bRight = bLeft + b.width;
-
-      if (blockLeft < bRight - 0.5 && blockRight > bLeft + 0.5) {
-        supportLeft = Math.min(supportLeft, bLeft);
-        supportRight = Math.max(supportRight, bRight);
-        foundSupport = true;
-      }
-    }
-  }
-
-  // Base block at y=0 is supported by ground
-  if (!foundSupport && blockY <= 0) {
-    return { stable: true, overlapRatio: 1.0, pivotX: blockCenterX, slideDirection: 0 };
-  }
-
-  if (!foundSupport) {
-    return { stable: false, overlapRatio: 0, pivotX: blockCenterX, slideDirection: blockCenterX > state.W / 2 ? 1 : -1 };
-  }
-
-  const overlapLeft = Math.max(blockLeft, supportLeft);
-  const overlapRight = Math.min(blockRight, supportRight);
-  const overlap = Math.max(0, overlapRight - overlapLeft);
-  const overlapRatio = overlap / blockW;
-
-  const minOverlap = PHYSICS_CONFIG.STABILITY_OVERLAP_MIN || 0.30;
-  const isRightHang = (blockRight - supportRight) > (supportLeft - blockLeft);
-  const slideDirection = isRightHang ? 1 : -1;
-  const pivotX = isRightHang ? supportRight : supportLeft;
-
-  return {
-    stable: overlapRatio >= minOverlap,
-    overlapRatio,
-    pivotX,
-    slideDirection
-  };
+  return PhysicsEngine.evaluateBlockStability(state.blocks, state.towerAngle, blockX, blockW, blockY, state.W);
 }
 
-/**
- * Calculates the cumulative Center of Mass (CoM) of the tower.
- * Returns true if tower is critically unbalanced.
- */
 export function checkTowerCenterOfMass() {
-  if (state.blocks.length <= 2) return false;
-
-  const baseCenter = state.columnLeft + state.columnWidth / 2;
-  let totalWeightedMass = 0;
-  let weightedX = 0;
-
-  for (let i = 0; i < state.blocks.length; i++) {
-    const b = state.blocks[i];
-    const mass = b.mass || 1.0;
-    const heightLeverage = 1.0 + (b.y / 600) * 1.0; // Smooth height leverage
-    const effectiveMass = mass * heightLeverage;
-    const centerX = b.x + b.width / 2;
-
-    totalWeightedMass += effectiveMass;
-    weightedX += centerX * effectiveMass;
-  }
-
-  if (totalWeightedMass <= 0) return false;
-
-  const comX = weightedX / totalWeightedMass;
-  const comOffset = Math.abs(comX - baseCenter) / state.columnWidth;
-  const maxOffset = PHYSICS_CONFIG.COM_CRITICAL_OFFSET || 0.35;
-
-  return comOffset > maxOffset;
+  const result = PhysicsEngine.checkTowerCenterOfMass(state.blocks, state.columnLeft, state.columnWidth);
+  return result.isUnbalanced;
 }
 
 export function handleDrop() {
@@ -175,18 +77,15 @@ export function handleDrop() {
 
   if (landingY < currentTopFloorY - BLOCK_H * 0.8) {
     spawnDebris(dropX, state.mover ? state.mover.y : landingY, dropW, state.mover ? state.mover.color : "#fff", 1);
-    handleGameOver();
+    triggerTowerCollapse();
     return;
   }
 
-  // Calculate mass for this block
   const blockMass = state.mover.mass || (type.weight * (state.mover.isGolden ? 1.5 : 1.0));
-
-  // Evaluate overlap stability footprint
   const stability = evaluateBlockStability(localDropX, dropW, landingY);
   const isUnstableDrop = !stability.stable;
 
-  // Counter-stamping check: Check if new block stamps down any teetering block below
+  // Counter-stamping check using CatModifierSystem via PhysicsEngine
   for (let i = 0; i < state.blocks.length; i++) {
     const b = state.blocks[i];
     if (b.isTeetering) {
@@ -194,17 +93,8 @@ export function handleDrop() {
                                    (b.tiltDir < 0 && moverCenter > b.tiltPivotX + landingSway);
 
       if (isLandedOnRaisedSide) {
-        const massRatio = blockMass / (b.mass || 1.0);
-        const stampImpulse = (PHYSICS_CONFIG.STAMP_RECOVERY_FORCE || 0.06) * Math.max(0.8, massRatio);
-
-        b.tiltVel -= b.tiltDir * stampImpulse;
-        b.localTilt -= b.tiltDir * (stampImpulse * 1.5);
-
-        if ((b.tiltDir > 0 && b.localTilt <= 0) || (b.tiltDir < 0 && b.localTilt >= 0)) {
-          b.isTeetering = false;
-          b.localTilt = 0;
-          b.tiltVel = 0;
-          b.settled = true;
+        const flattened = PhysicsEngine.applyCounterStamping(b, blockMass);
+        if (flattened) {
           spawnFloatingText(dropX + dropW / 2, screenMidY - 30, "ВЫРАВНЯЛ! 🔨✨", "#7fd8e8", 20 * uiScale());
           spawnParticles(dropX + dropW / 2, screenMidY, 16, ["#7fd8e8", "#ffffff"], 3.5, 500);
         }
@@ -248,7 +138,6 @@ export function handleDrop() {
 
     state.towerAngularVelocity = -state.towerAngle * 1.8;
 
-    // Flatten all lower teetering blocks on perfect combo
     for (let i = 0; i < state.blocks.length; i++) {
       if (state.blocks[i].isTeetering) {
         state.blocks[i].isTeetering = false;
@@ -285,11 +174,12 @@ export function handleDrop() {
       
       const towerHeight = Math.max(BLOCK_H, getTopFloorY());
       const totalBlocks = state.blocks.length;
-      const momentOfInertia = totalBlocks * towerHeight * 0.01 + 1;
-      const impulse = (misalignment * blockMass * (PHYSICS_CONFIG.DROP_IMPULSE_FACTOR * 0.35)) / momentOfInertia;
+      
+      // Delegated to TowerTiltSolver via PhysicsEngine (Stage 3 attenuation)
+      const impulse = PhysicsEngine.calculateDropImpulse(misalignment, blockMass, totalBlocks, towerHeight);
 
       state.towerAngularVelocity += impulse;
-      state.towerAngularVelocity = Math.max(-PHYSICS_CONFIG.MAX_ANGULAR_VELOCITY, Math.min(PHYSICS_CONFIG.MAX_ANGULAR_VELOCITY, state.towerAngularVelocity));
+      state.towerAngularVelocity = Math.max(-PhysicsEngine.config.MAX_ANGULAR_VELOCITY, Math.min(PhysicsEngine.config.MAX_ANGULAR_VELOCITY, state.towerAngularVelocity));
 
       triggerShake(type.id === "heavy" ? 8 : 4);
     }
@@ -321,10 +211,9 @@ export function handleDrop() {
 
   state.blocks.push(placed);
 
-  // Check cumulative Center of Mass
   if (checkTowerCenterOfMass()) {
     spawnFloatingText(state.W / 2, screenMidY - 40, "БАШНЯ ПЕРЕКОШЕНА! 💥", "#ff4d4d", 22 * uiScale());
-    handleGameOver();
+    triggerTowerCollapse();
     return;
   }
 
@@ -332,7 +221,6 @@ export function handleDrop() {
   checkMilestone();
   spawnMover();
 }
-
 
 function updateCameraTarget(topY) {
   if (topY - state.targetCameraY > state.H * CAMERA_TRAIL_FRACTION) {
@@ -358,41 +246,24 @@ export function checkMilestone() {
   }
 }
 
-export function handleGameOver() {
-  state.status = "over";
-  state.finalFloor = getFloorCount(); // Save exact floor reached BEFORE clearing blocks!
+/**
+ * Stage 4 Multi-Phase Collapse Trigger:
+ * Transitions state to "collapsing", starts block physical falling animation,
+ * and defers Game Over screen until blocks finish falling off-screen!
+ */
+export function triggerTowerCollapse() {
+  if (state.status === "collapsing" || state.status === "over") return;
+
+  state.status = "collapsing";
+  state.finalFloor = getFloorCount();
   state.best = Math.max(state.best, state.score);
   Platform.sendScore(state.score);
   Platform.saveData({ best: state.best, maxUnlockedLevel: state.maxUnlockedLevel });
-  
-  // Epic Collapse Animation: blocks scatter in different directions down off the screen
-  if (state.blocks.length > 0) {
-    const tiltDir = state.towerAngle > 0 ? 1 : -1;
-    const totalCount = state.blocks.length;
 
-    for (let i = 0; i < totalCount; i++) {
-      const b = state.blocks[i];
-      const swayedX = b.x + b.width / 2 + getBlockSwayX(b.y);
-      
-      // Scatter left and right in different directions
-      const sideDir = (i % 2 === 0 ? 1 : -1);
-      const scatterVx = (Math.random() * 6 + 2) * sideDir + (tiltDir * 2);
-      // Negative Y velocity = moves DOWNWARDS towards bottom of screen in renderer coords!
-      const scatterVy = -Math.random() * 6 - 2;
+  triggerShake(12);
+  PhysicsEngine.startTowerCollapse(state.blocks, state.towerAngle);
+}
 
-      spawnDebris(swayedX - b.width / 2, b.y, b.width, b.color, sideDir);
-      
-      const d = state.debris[state.debris.length - 1];
-      d.vx = scatterVx;
-      d.vy = scatterVy;
-      d.rot = state.towerAngle;
-      d.vrot = (Math.random() - 0.5) * 0.35; // Dynamic rotation
-    }
-    state.blocks = []; // Clear the tower
-  }
-
-  triggerShake(20);
-  triggerScreenFlash("#ff4d4d", 0.6);
-  AudioEngine.playGameOverSound();
-  updateHUD();
+export function handleGameOver() {
+  triggerTowerCollapse();
 }

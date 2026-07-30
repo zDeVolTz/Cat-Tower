@@ -3,7 +3,7 @@
  */
 import { BLOCK_H, GROUND_MARGIN, BLOCK_TYPES, PHYSICS_CONFIG } from "./config.js";
 import { state, spawnParticles, spawnFloatingText, uiScale, getFloorCount, getBlockSwayX, getCriticalTilt, getMoverLimits, getLaneBounds } from "./gameState.js";
-import { handleGameOver } from "./physics.js";
+import { handleGameOver, PhysicsEngine } from "./physics.js";
 
 // Accumulator for fixed timestep
 let physicsAccumulator = 0;
@@ -14,11 +14,15 @@ export function update(dt) {
   // 1. Smooth Camera Lerp
   state.cameraY += (state.targetCameraY - state.cameraY) * 0.1 * k;
 
-  // 2. Physical Inverted Pendulum — Fixed Timestep
-  if (state.status === "playing" && state.blocks.length > 1) {
+  // 2. Physical Inverted Pendulum & Collapse Dynamics
+  if (state.status === "collapsing") {
+    const allCleared = PhysicsEngine.stepCollapsingBlocks(state.blocks, state.H, dt);
+    if (allCleared) {
+      state.status = "over";
+    }
+  } else if (state.status === "playing" && state.blocks.length > 1) {
     physicsAccumulator += dt;
     const substepMs = PHYSICS_CONFIG.PHYSICS_SUBSTEP_MS;
-    // Cap accumulator to prevent spiral-of-death on long freezes
     if (physicsAccumulator > 200) physicsAccumulator = 200;
 
     while (physicsAccumulator >= substepMs && state.status === "playing" && state.blocks.length > 1) {
@@ -250,15 +254,10 @@ function physicsTick(dt) {
     const b = state.blocks[i];
     if (b && b.isTeetering) {
       const type = BLOCK_TYPES[b.typeId] || BLOCK_TYPES.normal;
-      const slideFactor = type.friction ? (1.0 / type.friction) : 1.0;
+      const tippedOver = PhysicsEngine.stepTeeteringBlock(b, type.friction, dt);
 
-      const accel = (P.TEETER_BASE_ACCEL * 60 * slideFactor * (1 + Math.abs(b.localTilt) * 2));
-      b.tiltVel += b.tiltDir * accel * dt;
-      b.localTilt += b.tiltVel * (dt * 60);
-
-      if (Math.abs(b.localTilt) >= P.TEETER_MAX_ANGLE) {
-        b.isTeetering = false;
-        spawnFloatingText(state.W / 2, state.H * 0.4, "БАШНЯ УПАЛА! 💥", "#ff4d4d", 25 * uiScale());
+      if (tippedOver) {
+        spawnFloatingText(state.W / 2, state.H * 0.4, "БЛОК УПАЛ! 💥", "#ff4d4d", 25 * uiScale());
         handleGameOver();
         break;
       }

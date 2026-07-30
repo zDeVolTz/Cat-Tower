@@ -181,7 +181,7 @@ try {
   state.mover.width = 140; state.mover.typeId = "normal";
   state.mover.x = state.columnLeft + 300; // Drop into empty air
   handleDrop();
-  assert(state.status === "over", "D008: Dropping block into empty air triggers Game Over");
+  assert(state.status === "collapsing" || state.status === "over", "D008: Dropping block into empty air triggers Game Over collapse sequence");
 
   resetGameState();
   state.status = "playing";
@@ -245,8 +245,8 @@ try {
   state.status = "playing";
   const debrisBefore = state.debris.length;
   handleGameOver();
-  assert(state.debris.length > debrisBefore, "V009: Game Over triggers debris particle collapse animation");
-  assert(state.status === "over", "V010: Game status transitions to 'over' on collapse");
+  assert(state.blocks.some(b => b.isFalling) || state.debris.length > debrisBefore, "V009: Game Over triggers collapse physics animation");
+  assert(state.status === "collapsing" || state.status === "over", "V010: Game status transitions to collapsing sequence on collapse");
 
   resetGameState();
   state.status = "playing";

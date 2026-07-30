@@ -103,11 +103,23 @@ export function render() {
     ctx.translate(rx, ry);
   }
 
-  // 3. Render Cat Blocks Stack — Rigid Body Sway & Local Edge-Pivot Tilt
+  // 3. Render Cat Blocks Stack — Rigid Body Sway, Local Edge-Pivot Tilt & Falling Dynamics
   for (let i = 0; i < state.blocks.length; i++) {
     const b = state.blocks[i];
     const screenY = state.H - GROUND_MARGIN - (b.y - state.cameraY) - BLOCK_H;
-    if (screenY < -120 || screenY > state.H + 120) continue;
+    if (screenY < -200 || screenY > state.H + 200) continue;
+
+    if (b.isFalling) {
+      ctx.save();
+      const cx = b.x + b.width / 2;
+      const cy = screenY + BLOCK_H / 2;
+      ctx.translate(cx, cy);
+      ctx.rotate(b.rot || 0);
+      ctx.translate(-cx, -cy);
+      drawCatBlock(ctx, b, b.x, screenY, b.rot || 0);
+      ctx.restore();
+      continue;
+    }
 
     const rigidSway = getBlockSwayX(b.y);
     const localTilt = b.localTilt || 0;

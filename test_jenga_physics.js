@@ -5,7 +5,7 @@
 
 import { BLOCK_H, PHYSICS_CONFIG, BLOCK_TYPES } from "./src/game/config.js";
 import { state, resetGameState, calculateBlockMass } from "./src/game/gameState.js";
-import { evaluateBlockStability, checkTowerCenterOfMass } from "./src/game/physics.js";
+import { evaluateBlockStability, checkTowerCenterOfMass, PhysicsEngine } from "./src/game/physics.js";
 
 let passed = 0;
 let failed = 0;
@@ -78,6 +78,29 @@ try {
   assert(BLOCK_TYPES.slippery.overturnResistance === 0.6, "J014: Slippery cat overturn resistance = 0.6");
   assert(BLOCK_TYPES.sticky.friction === 2.0, "J015: Sticky cat surface friction = 2.0");
 
+  // ─── 5. STAGE 1 & 3: MODULAR ENGINE & IMPULSE ATTENUATION ───
+  const impulseSmall = PhysicsEngine.calculateDropImpulse(5, 1.0, 5, 200);
+  const impulseLarge = PhysicsEngine.calculateDropImpulse(30, 1.0, 5, 200);
+  assert(Math.abs(impulseSmall) < Math.abs(impulseLarge) * 0.1, "J016: Small misalignment (<15px) applies heavily attenuated impulse");
+
+  // ─── 6. STAGE 4: MULTI-PHASE COLLAPSE SEQUENCE ───
+  resetGameState();
+  state.status = "playing";
+  state.blocks = [
+    { x: 130, width: 140, y: 0, mass: 1.0 },
+    { x: 130, width: 140, y: BLOCK_H, mass: 1.0 }
+  ];
+  PhysicsEngine.startTowerCollapse(state.blocks, 0.2);
+  assert(state.blocks[0].isFalling === true, "J017: Tower collapse sets blocks into falling state");
+  
+  const allCleared = PhysicsEngine.stepCollapsingBlocks(state.blocks, 700, 0.016);
+  assert(typeof allCleared === "boolean", "J018: Collapsing step returns boolean indicating off-screen state");
+
+  // ─── 7. SINGLE BLOCK OVERHANG TIPPING FIX (USER BUG COVERAGE) ───
+  const teeterBlock = { isTeetering: true, localTilt: 0.45, tiltVel: 0, tiltDir: 1, typeId: "normal" };
+  const tipped = PhysicsEngine.stepTeeteringBlock(teeterBlock, 1.0, 0.016);
+  assert(tipped === true && teeterBlock.isFalling === true && teeterBlock.vx > 0, "J019: Single overhanging block tipping over converts to physical falling trajectory");
+
 } catch (err) {
   assert(false, "EX-RUNTIME: Uncaught exception in Jenga physics test suite", err.stack || String(err));
 }
@@ -85,3 +108,9 @@ try {
 console.log(`\n======================================================================`);
 console.log(`   JENGA PHYSICS TEST RESULTS: ${passed} PASSED, ${failed} FAILED OUT OF ${passed + failed}`);
 console.log(`======================================================================\n`);
+
+if (failed > 0) {
+  for (const r of results) {
+    if (!r.pass) console.log(`  ❌ FAILED: ${r.name} ${r.details}`);
+  }
+}

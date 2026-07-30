@@ -77,7 +77,7 @@ try {
     { x: 130, width: 140, y: BLOCK_H }
   ];
   update(16);
-  assert(state.status === "over", "P010: Tower angle exceeding critical tilt threshold triggers collapse (Game Over)");
+  assert(state.status === "collapsing" || state.status === "over", "P010: Tower angle exceeding critical tilt threshold triggers collapse (Game Over)");
 
   resetGameState();
   state.status = "playing";
