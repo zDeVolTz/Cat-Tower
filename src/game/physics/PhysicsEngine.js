@@ -48,8 +48,8 @@ export class PhysicsEngine {
     return FallingSolver.stepTeeteringBlock(block, friction, dt, towerAngle);
   }
 
-  static triggerSingleBlockFall(block) {
-    return FallingSolver.triggerSingleBlockFall(block);
+  static triggerSingleBlockFall(block, towerAngle = 0) {
+    return FallingSolver.triggerSingleBlockFall(block, towerAngle);
   }
 
   static startTowerCollapse(blocks, towerAngle) {

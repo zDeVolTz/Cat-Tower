@@ -63,6 +63,21 @@ try {
   update(5000); // Simulate long background tab pause (5 seconds dt)
   assert(state.status === "playing" || state.status === "over", "E005: Game loop handles long background pause without spiral of death");
 
+  // ─── 5. CASCADE COLLAPSE (TEETERING BLOCK FALLS WITH BLOCKS ON TOP) ───
+  resetGameState();
+  state.status = "playing";
+  state.blocks = [
+    { x: 130, width: 140, y: 0, settled: true, mass: 1 },
+    { x: 230, width: 140, y: BLOCK_H, isTeetering: true, settled: false, localTilt: 0.45, tiltVel: 0, tiltDir: 1, mass: 1 }, // Teetering block (about to fall)
+    { x: 230, width: 140, y: BLOCK_H * 2, settled: true, mass: 1 } // Block on top of it
+  ];
+  
+  // Tick game loop to process the teetering fall
+  update(16);
+  assert(state.blocks[1].isFalling === true, "E006: Teetering block falls out");
+  assert(state.blocks[2].isFalling === true, "E007: Cascade Collapse - Block on top of falling block also falls");
+  assert(state.status === "collapsing", "E008: Game status becomes collapsing during cascade fall");
+
 } catch (err) {
   assert(false, "EX-RUNTIME: Uncaught exception in edge cases test suite", err.stack || String(err));
 }

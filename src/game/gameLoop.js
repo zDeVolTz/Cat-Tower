@@ -256,6 +256,11 @@ function physicsTick(dt, isGameOver = false) {
         const tippedOver = PhysicsEngine.stepTeeteringBlock(b, type.friction, dt, state.towerAngle);
 
         if (tippedOver) {
+          // Cascade Collapse: All blocks stacked ABOVE the falling block must fall too!
+          for (let j = i + 1; j < state.blocks.length; j++) {
+            PhysicsEngine.triggerSingleBlockFall(state.blocks[j], state.towerAngle);
+          }
+          
           spawnFloatingText(state.W / 2, state.H * 0.4, "БЛОК УПАЛ! 💥", "#ff4d4d", 25 * uiScale());
           handleGameOver(false);
           break;
