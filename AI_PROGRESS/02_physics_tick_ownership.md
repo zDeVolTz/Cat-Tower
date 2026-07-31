@@ -1,74 +1,69 @@
 # Cat Tower — AI Progress Report
 
+Этап 2 фактически реализован и проверен по исходному коду.
+
 ## Этап 2 — Physics Tick Ownership
 
 ### 1. Цель
-Сделать `PhysicsWorld` фактическим координатором (владельцем) вызова физики (physics tick), перенеся интеграцию и вызовы старых Solver'ов из `gameLoop.js` внутрь `PhysicsWorld.step(dt)`.
+Сделать `PhysicsWorld` координатором физического обновления, не меняя при этом старые формулы и Solver'ы.
 
 ### 2. Что было до изменений
-До этапа вся координация интеграции (расчет Center of Mass, вычисление torque для Harmonic Sway, запуск Jenga Physics и проверка Collapse Bounds) находилась внутри толстой функции `physicsTick` прямо в `src/game/gameLoop.js`. Она была тесно привязана к глобальному `state`. `PhysicsWorld.step(dt)` был просто пустой заглушкой.
+Вся логика обновления физики находилась в толстой функции `physicsTick` в файле `gameLoop.js`. `PhysicsWorld.step(dt)` был пустой заглушкой.
 
 ### 3. Что изменено
 
 - **`src/game/physics/PhysicsWorld.js`**
-  - **Изменение:** В метод `step(dt, state, isGameOver)` перенесено всё тело старой функции `physicsTick`. Добавлены импорты необходимых конфигураций и хелперов (`PHYSICS_CONFIG`, `PhysicsEngine`, `getBlockSwayX`, `getLaneBounds` и др.).
-  - **Причина:** Чтобы `PhysicsWorld` начал оркестрировать физический цикл, как требуется для будущей компонентной системы.
+  - **Изменение:** Метод `step(dt, state, isGameOver = false)` теперь содержит полную, рабочую реализацию цикла физики.
+  - **Причина:** Передача ownership (владения) физического tick'а.
 
 - **`src/game/gameLoop.js`**
-  - **Изменение:** Тело функции `physicsTick(dt, isGameOver)` удалено и заменено на тонкую обёртку: `state.physicsWorld.step(dt, state, isGameOver)`.
-  - **Причина:** Это позволило не трогать вызовы внутри Game Loop (цикл `while (physicsAccumulator >= substepMs)`), обеспечив безопасность и избежав двойных тиков, но при этом передать контроль в `PhysicsWorld`.
+  - **Изменение:** `physicsTick(dt, isGameOver)` превращён в совместимую тонкую обёртку: `state.physicsWorld.step(dt, state, isGameOver)`.
+  - **Причина:** Безопасный переход. `gameLoop.js` продолжает контролировать fixed timestep (`physicsAccumulator`), вызывая physics tick без риска двойного исполнения.
 
 ### 4. Новый поток physics update
 
-Схема выполнения за кадр:
-```
-Game Loop (update в gameLoop.js)
- ↓ (while accumulator >= substepMs)
-physicsTick(dt, isGameOver) [Тонкая обёртка]
+Game Loop
  ↓
-state.physicsWorld.step(dt, state, isGameOver)
+`physicsTick(...)` — совместимая обёртка
  ↓
-1. Center of Mass solver (инлайн интеграция видимых блоков)
+`state.physicsWorld.step(dt, state, isGameOver)`
  ↓
-2. Вычисление Torque (gravity, spring, damping, wind) и Euler Integration
- ↓
-3. Teetering Bricks (PhysicsEngine.stepTeeteringBlock)
- ↓
-4. Strict Visual Bounds Collapse Check
-```
+- Расчёт Center of Mass (инлайн)
+- Вычисление крутящих моментов (gravity, spring, damping, wind) и интеграция угла/скорости
+- `PhysicsEngine.stepTeeteringBlock`
+- Проверка `isVisuallyOffScreen` и вызов `handleGameOver`
+
+Порядок физических операций остался 100% идентичным.
 
 ### 5. Что НЕ изменялось
-- Ни один из Solver-ов (`PhysicsEngine.js`, `StabilitySolver`, `FallingSolver`) не был переписан.
-- Алгоритмы физики, константы и модель времени не изменились.
-- Порядок вызовов остался строго идентичным.
+- Математика физики, константы, формулы.
+- Fixed timestep (как передавался `substepMs / 1000`, так и передаётся).
+- Наличие UI вызовов (например, `spawnFloatingText`, `handleGameOver` внутри интеграции) — они просто переехали в `PhysicsWorld.js` ради сохранения поведения на этом этапе.
 
 ### 6. Как предотвращено двойное выполнение physics
-Старая функция `physicsTick` в `gameLoop.js` была оставлена, но её исходный код был *полностью заменён* на вызов `state.physicsWorld.step`. Это означает, что физика не дублируется: все вызовы из game loop просто прозрачно пробрасываются в новый `PhysicsWorld`.
+В файле `gameLoop.js` функция `physicsTick` была полностью очищена от бизнес-логики. Она содержит только проверку и проброс вызова в `PhysicsWorld.step`. Физика выполняется ровно 1 раз.
 
 ### 7. Работа с dt
-Фактическая передача `dt` полностью сохранена. В `gameLoop.js` используется fixed timestep (субстепы). Вызов `physicsTick(substepMs / 1000, false)` передаёт фиксированное значение (в секундах) через обёртку в `PhysicsWorld.step(dt)`. Никакой новой логики накопления времени в `PhysicsWorld` не вводилось.
+Слой `gameLoop.js` всё ещё накапливает миллисекунды, нарезает их на фиксированные субшаги и передаёт `dt` (в секундах) через обёртку `physicsTick` прямиком в `PhysicsWorld.step(dt)`. Поведение времени абсолютно не поменялось.
 
 ### 8. Тесты
 
 **ПРОЙДЕНЫ:**
-- Game Mechanics Tests (119/119)
-- Physics Engine Invariants & Safety Bounds (12/12)
-- Jenga Physics & Stability Unit Tests (33/33)
-- Edge Cases & Module Integration (8/8)
+- Успешно выполнено `node run_all_tests.js`. Все 172 теста, включая Jenga Physics и Edge Cases, пройдены (100% SUCCESS).
 
-**НЕ ПРОЙДЕНЫ:** 
-Нет (все 100% пройдены).
+**НЕ ПРОЙДЕНЫ:**
+- Отсутствуют.
 
 **ОШИБКИ:**
-Нет.
+- Отсутствуют.
 
 ### 9. Ручная проверка
-Был осуществлен статический анализ и автоматическое тестирование `run_all_tests.js`.
-*Визуальный ручной тест (в браузере) в данном окружении не проводился*, но благодаря 100% прохождению всех глубоких Jenga-тестов и отсутствию изменений в математике, рендеринг и геймплей гарантированно остались идентичными.
+- Внимательно проверен фактический код файлов `PhysicsWorld.js` и `gameLoop.js` через инструменты чтения файловой системы, чтобы убедиться, что код не был утерян или ошибочно закоммичен. 
+- Репозиторий и тесты проверены напрямую. Визуальная (браузерная) проверка не выполнялась.
 
 ### 10. Обнаруженные проблемы
-- В `PhysicsWorld.js` теперь импортируется большое количество вспомогательных UI/Render-функций (`spawnFloatingText`, `uiScale`, `getLaneBounds`), так как оригинальный `physicsTick` содержал смешанную логику. Это не является критичным багом для текущего этапа, но в будущем физический движок должен быть полностью отделен от UI-эффектов.
+- Вызовы UI/Side Effects (такие как тексты и `handleGameOver`) были механически скопированы в `PhysicsWorld.js`. Это допустимо для Этапа 2 (мы перенесли "как есть"), но в будущем потребуется decoupling.
 
 ### 11. Следующий логичный этап
-- Изоляция UI-вызовов (spawnParticles, spawnFloatingText) из `PhysicsWorld.js` обратно в слой представления через события/колбеки, чтобы физический мир занимался только математикой и состояниями тел.
-- Перевод вычисления Center of Mass в отдельный метод (или делегирование `CenterOfMassSolver.js`) вместо инлайн-вычислений, которые мы скопировали из `gameLoop.js`.
+- Изоляция UI-эффектов от PhysicsWorld (переход на систему событий или возврат метаданных).
+- Вынос инлайн-кода вычисления Center of Mass в отдельный солвер.
