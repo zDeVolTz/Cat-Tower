@@ -148,7 +148,8 @@ export class PhysicsWorld {
         const b = state.blocks[i];
         if (b && b.isTeetering) {
           const type = BLOCK_TYPES[b.typeId] || BLOCK_TYPES.normal;
-          const tippedOver = PhysicsEngine.stepTeeteringBlock(b, type.friction, dt, state.towerAngle);
+          const friction = (b.physics && b.physics.friction !== undefined) ? b.physics.friction : (type.friction || 1.0);
+          const tippedOver = PhysicsEngine.stepTeeteringBlock(b, friction, dt, state.towerAngle);
 
           if (tippedOver) {
             // Cascade Collapse: All blocks stacked ABOVE the falling block must fall too!

@@ -21,8 +21,15 @@ export class Block {
     this.typeId = typeId;
     this.isGolden = isGolden;
     this.color = color;
-    this.mass = mass;
     this.settled = settled;
+
+    const type = BLOCK_TYPES[typeId] || BLOCK_TYPES.normal;
+    this.physics = {
+      mass: mass,
+      friction: type.friction !== undefined ? type.friction : 1.0,
+      restitution: type.restitution !== undefined ? type.restitution : 0.0,
+      stability: 1.0
+    };
 
     // Teetering & Edge Pivot Physics Properties
     this.isTeetering = false;

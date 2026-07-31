@@ -16,7 +16,7 @@ export class CenterOfMassSolver {
 
     for (let i = 0; i < blocks.length; i++) {
       const b = blocks[i];
-      const mass = b.mass || 1.0;
+      const mass = (b.physics && b.physics.mass !== undefined) ? b.physics.mass : (b.mass !== undefined ? b.mass : 1.0);
       const heightLeverage = 1.0 + (b.y / 600) * 1.0;
       const effectiveMass = mass * heightLeverage;
       const centerX = b.x + b.width / 2;

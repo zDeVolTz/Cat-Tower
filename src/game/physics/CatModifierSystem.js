@@ -25,7 +25,7 @@ export class CatModifierSystem {
 
     const catAttr = this.getCatAttributes(teeteringBlock.typeId);
     const resistance = catAttr.overturnResistance;
-    const massRatio = landingBlockMass / (teeteringBlock.mass || 1.0);
+    const massRatio = landingBlockMass / ((teeteringBlock.physics && teeteringBlock.physics.mass !== undefined) ? teeteringBlock.physics.mass : (teeteringBlock.mass !== undefined ? teeteringBlock.mass : 1.0));
     const stampImpulse = (stampForce / resistance) * Math.max(0.8, massRatio);
 
     teeteringBlock.tiltVel -= teeteringBlock.tiltDir * stampImpulse;
