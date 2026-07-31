@@ -45,10 +45,10 @@ export class PhysicsWorld {
   }
 
   /**
-   * Обновляет состояние физического мира.
-   * Пока это заглушка, которая не изменяет физику игры.
-   * 
+   * Выполняет обновление физического мира (Physics Tick).
    * @param {number} dt - Дельта времени
+   * @param {Object} state - Глобальное состояние игры
+   * @param {boolean} isGameOver - Флаг окончания игры
    */
   step(dt, state, isGameOver = false) {
     if (!state.blocks || state.blocks.length <= 1) return;
