@@ -94,8 +94,15 @@ export function handleDrop() {
   for (let i = 0; i < state.blocks.length; i++) {
     const b = state.blocks[i];
     if (b.isTeetering) {
-      const isLandedOnRaisedSide = (b.tiltDir > 0 && moverCenter < b.tiltPivotX + landingSway) ||
-                                   (b.tiltDir < 0 && moverCenter > b.tiltPivotX + landingSway);
+      // b.tiltPivotX is stored LOCAL (like b.x) — recompute where the pivot corner
+      // actually sits on screen right now, using the support's own y (b.y - BLOCK_H),
+      // the same convention every other block's sway is derived from. The previous
+      // version compared a frozen absolute snapshot from placement time against sway
+      // computed at the wrong height (the new block's landing y, not the support's) —
+      // it silently drifted wrong the moment towerAngle changed after the block started teetering.
+      const pivotAbsX = b.tiltPivotX + getBlockSwayX(b.y - BLOCK_H);
+      const isLandedOnRaisedSide = (b.tiltDir > 0 && moverCenter < pivotAbsX) ||
+                                   (b.tiltDir < 0 && moverCenter > pivotAbsX);
 
       if (isLandedOnRaisedSide) {
         const flattened = PhysicsEngine.applyCounterStamping(b, blockMass);
@@ -120,7 +127,10 @@ export function handleDrop() {
     localTilt: isUnstableDrop ? stability.slideDirection * 0.02 : 0,
     tiltVel: isUnstableDrop ? stability.slideDirection * 0.001 : 0,
     tiltDir: stability.slideDirection,
-    tiltPivotX: stability.pivotX,
+    // Stored LOCAL (unswayed), matching how .x is stored — subtract the sway that was
+    // present at the support's own y at this moment, so it can be correctly re-swayed
+    // later using whatever towerAngle is current when it's actually used.
+    tiltPivotX: stability.pivotX - getBlockSwayX(landingY - BLOCK_H),
     squishX: 1.12,
     squishY: 0.90,
     squishVelX: 0,

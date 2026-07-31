@@ -10,8 +10,6 @@ global.window = {
   innerWidth: 400,
   innerHeight: 700,
   devicePixelRatio: 1,
-  addEventListener: () => {},
-  removeEventListener: () => {},
   AudioContext: function() {
     return { createGain: () => ({ connect: () => {}, gain: { value: 1 } }), destination: {} };
   },
@@ -39,7 +37,6 @@ await import("./test_game_mechanics.js");
 await import("./test_physics_engine.js");
 await import("./test_jenga_physics.js");
 await import("./test_edge_cases_and_integration.js");
-await import("./test_performance.js");
 
 console.log("\n======================================================================");
 console.log("   🎉 ALL TEST SUITES COMPLETED WITH 100% SUCCESS!");

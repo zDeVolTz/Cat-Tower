@@ -4,7 +4,7 @@
  */
 
 import { BLOCK_H, PHYSICS_CONFIG, BLOCK_TYPES } from "./src/game/config.js";
-import { state, resetGameState, calculateBlockMass } from "./src/game/gameState.js";
+import { state, resetGameState, calculateBlockMass, getBlockSwayX } from "./src/game/gameState.js";
 import { evaluateBlockStability, checkTowerCenterOfMass, PhysicsEngine, handleDrop } from "./src/game/physics.js";
 
 let passed = 0;
@@ -95,6 +95,55 @@ try {
     const placed = state.blocks[state.blocks.length - 1];
     assert(placed && placed.settled === true && placed.isTeetering !== true,
       "J009b: A visually perfect drop (through real handleDrop()) stays stable even when the tower is leaning at real height");
+
+    state.blocks = savedState.blocks; state.towerAngle = savedState.towerAngle; state.mover = savedState.mover;
+    state.status = savedState.status; state.columnLeft = savedState.columnLeft;
+    state.columnWidth = savedState.columnWidth; state.columnRight = savedState.columnRight;
+    state.cameraY = savedState.cameraY; state.W = savedState.W; state.H = savedState.H;
+  }
+
+  // ─── 2c. COUNTER-STAMP PIVOT MUST TRACK THE TOWER'S CURRENT LEAN, NOT A FROZEN SNAPSHOT ───
+  // Regression test for a real bug: a teetering block's tiltPivotX was stored as an absolute
+  // on-screen snapshot taken the moment it started teetering, then later compared against a
+  // sway value computed at the wrong height entirely (the new drop's landing y, not the
+  // support's y). Once towerAngle drifted after the block started teetering — which happens
+  // continuously in real play — "landed on the raised side?" could be judged tens of pixels
+  // off from what the player actually saw on screen.
+  {
+    const savedState = {
+      blocks: state.blocks, towerAngle: state.towerAngle, mover: state.mover,
+      status: state.status, columnLeft: state.columnLeft, columnWidth: state.columnWidth,
+      columnRight: state.columnRight, cameraY: state.cameraY, W: state.W, H: state.H
+    };
+
+    state.status = "playing";
+    state.columnLeft = 130; state.columnWidth = 140; state.columnRight = 270;
+    state.W = 400; state.H = 700; state.cameraY = 0;
+
+    const baseY = 800;
+    state.blocks = [{ x: 130, width: 140, y: baseY, typeId: "normal", mass: 1, color: "#fff", settled: true }];
+
+    // Tower is already leaning when the teetering block is created (realistic: it's been leaning a while).
+    state.towerAngle = 0.10;
+    const swayAtCreation = getBlockSwayX(baseY);
+    state.mover = { x: 130 + swayAtCreation + 100, width: 140, y: baseY, dir: 1, speed: 0, typeId: "normal", color: "#fff", mass: 1, isGolden: false };
+    handleDrop();
+    const teetering = state.blocks[state.blocks.length - 1];
+    assert(teetering.isTeetering === true, "J009c-setup: overhanging drop creates a teetering block");
+
+    // Tower keeps drifting further after that (continuous, as in real play).
+    state.towerAngle = 0.20;
+    const supportY = teetering.y - BLOCK_H;
+    const trueCurrentPivot = 270 + getBlockSwayX(supportY); // support's real right edge, right now
+
+    // Player aims precisely at the true, currently-visible raised (left) side of the block —
+    // a normal, deliberate stamp attempt using what they actually see on screen.
+    const stampX = trueCurrentPivot - 30;
+    state.mover = { x: stampX, width: 40, y: teetering.y, dir: 1, speed: 0, typeId: "normal", color: "#fff", mass: 3, isGolden: false };
+    handleDrop();
+
+    assert(teetering.isTeetering === false,
+      "J009c: A stamp aimed at the block's true current raised side flattens it, even after the tower leaned further since it started teetering");
 
     state.blocks = savedState.blocks; state.towerAngle = savedState.towerAngle; state.mover = savedState.mover;
     state.status = savedState.status; state.columnLeft = savedState.columnLeft;

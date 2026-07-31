@@ -337,6 +337,11 @@ export function spawnMover() {
     dir: fromLeft ? 1 : -1,
     speed,
     color,
+    // Bug fix: this was previously never set, so physics.js's handleDrop() always fell back
+    // to a flat type.weight for every real dropped block (only the permanent base block ever
+    // got the real width-scaled mass) — the "longer blocks are significantly heavier" design
+    // intent was dead for ~99% of actual gameplay, quietly weakening counter-stamping.
+    mass: calculateBlockMass(chosenTypeId, isGolden, moverWidth),
     squishX: 1,
     squishY: 1
   };
