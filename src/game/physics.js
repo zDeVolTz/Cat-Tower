@@ -225,6 +225,7 @@ export function handleDrop() {
   }
 
   state.blocks.push(placed);
+  state.physicsWorld.addBody(placed);
 
   // We no longer trigger instant collapse on CoM offset.
   // Instead, the Center of Mass solver provides comX for gravityTorque in gameLoop.js,

@@ -6,6 +6,7 @@ import {
   BLOCK_H, GROUND_MARGIN, CAMERA_TRAIL_FRACTION, PHYSICS_CONFIG,
   getLevelBlend, lerp
 } from "./config.js";
+import { PhysicsWorld } from "./physics/PhysicsWorld.js";
 
 /**
  * Calculates effective mass of a block based on cat type, golden status, and block width ratio.
@@ -29,6 +30,10 @@ export const state = {
   particles: [],
   floatingTexts: [],
   mover: null,
+
+  // Parallel physics world for future physics engine
+  physicsWorld: new PhysicsWorld(),
+
 
   // Building Column boundaries
   columnWidth: 200,
@@ -201,7 +206,6 @@ export function resetGameState() {
   state.startFloor = startFloor;
   state.currentLevel = state.selectedStartLevel;
 
-  // Always start with exactly 1 base block regardless of selected level
   state.blocks = [{
     x: state.columnLeft,
     width: state.columnWidth,
@@ -216,6 +220,10 @@ export function resetGameState() {
     squishVelX: 0,
     squishVelY: 0
   }];
+
+  // Reset parallel physics world
+  state.physicsWorld = new PhysicsWorld();
+  state.physicsWorld.addBody(state.blocks[0]);
 
   state.debris = [];
   state.particles = [];
