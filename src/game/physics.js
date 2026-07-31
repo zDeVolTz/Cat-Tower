@@ -81,7 +81,13 @@ export function handleDrop() {
   }
 
   const blockMass = state.mover.mass || (type.weight * (state.mover.isGolden ? 1.5 : 1.0));
-  const stability = evaluateBlockStability(localDropX, dropW, landingY);
+  // IMPORTANT: pass the block's real on-screen (absolute) position — dropX — not the
+  // sway-corrected localDropX used for storage. Support blocks are compared using their
+  // real on-screen position too (see StabilitySolver), so both sides must be in the same
+  // coordinate frame. Passing localDropX here made every stability check silently wrong
+  // whenever the tower had any lean (state.towerAngle != 0), which is most of a real run —
+  // a visually perfect drop could be scored as 0% overlap purely due to tower height/lean.
+  const stability = evaluateBlockStability(dropX, dropW, landingY);
   const isUnstableDrop = !stability.stable;
 
   // Counter-stamping check using CatModifierSystem via PhysicsEngine

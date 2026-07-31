@@ -58,6 +58,50 @@ try {
   assert(unstable15.stable === false, "J008: 14% overlap drop is unstable (<30%)");
   assert(unstable15.slideDirection === 1, "J009: Right-overhanging block detects rightward fall direction (+1)");
 
+  // ─── 2b. STABILITY MUST AGREE WITH THE PLAYER'S ON-SCREEN VIEW WHEN THE TOWER IS LEANING ───
+  // Regression test for a real bug in handleDrop(): it was feeding evaluateBlockStability
+  // the sway-corrected "local" storage coordinate instead of the block's real, current
+  // on-screen (absolute) position, while support blocks are compared in absolute
+  // coordinates internally. A visually perfectly-centered drop on a leaning, tall tower
+  // was scored as 0% overlap and treated as unstable. This must go through handleDrop()
+  // itself (not call evaluateBlockStability directly) — the bug lived in which coordinate
+  // handleDrop() chose to pass, not in the stability math itself.
+  {
+    const savedState = {
+      blocks: state.blocks, towerAngle: state.towerAngle, mover: state.mover,
+      status: state.status, columnLeft: state.columnLeft, columnWidth: state.columnWidth,
+      columnRight: state.columnRight, cameraY: state.cameraY, W: state.W, H: state.H
+    };
+
+    state.status = "playing";
+    state.columnLeft = 130; state.columnWidth = 140; state.columnRight = 270;
+    state.W = 400; state.H = 700; state.cameraY = 0;
+
+    const supportY = 800; // a realistic mid-run height (~17 floors)
+    state.blocks = [{ x: 130, width: 140, y: supportY, typeId: "normal", mass: 1, color: "#fff", settled: true }];
+    state.towerAngle = 0.15; // ~8.6°, an ordinary in-game lean, well under collapse
+
+    const supportSway = Math.sin(state.towerAngle) * supportY; // sway of the support, at its own y
+    const supportAbsLeft = state.blocks[0].x + supportSway;
+
+    // Player visually centers a full-width block dead-on against the leaning support.
+    state.mover = {
+      x: supportAbsLeft, width: 140, y: supportY, dir: 1, speed: 0,
+      typeId: "normal", color: "#fff", mass: 1, isGolden: false
+    };
+
+    handleDrop();
+
+    const placed = state.blocks[state.blocks.length - 1];
+    assert(placed && placed.settled === true && placed.isTeetering !== true,
+      "J009b: A visually perfect drop (through real handleDrop()) stays stable even when the tower is leaning at real height");
+
+    state.blocks = savedState.blocks; state.towerAngle = savedState.towerAngle; state.mover = savedState.mover;
+    state.status = savedState.status; state.columnLeft = savedState.columnLeft;
+    state.columnWidth = savedState.columnWidth; state.columnRight = savedState.columnRight;
+    state.cameraY = savedState.cameraY; state.W = savedState.W; state.H = savedState.H;
+  }
+
   // ─── 3. CUMULATIVE CENTER OF MASS (CoM) ───
   resetGameState();
   state.columnLeft = 130; state.columnWidth = 140;

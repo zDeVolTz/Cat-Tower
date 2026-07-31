@@ -165,6 +165,16 @@ export function update(dt) {
 /**
  * Single fixed-timestep physics tick for the inverted pendulum tower model.
  * dt is in seconds (e.g. 0.004 for a 4ms substep).
+ *
+ * NOTE: this is the LIVE tower-sway simulation (gravity/spring/damping torque,
+ * comX from the block loop right below). It intentionally does NOT call
+ * PhysicsEngine/TowerTiltSolver for this part — that module's own sway math
+ * (previously TowerTiltSolver.stepSway) was dead code and has been removed.
+ * If you want to change how the tower leans/topples over time, this function
+ * is the one place to edit — not src/game/physics/PhysicsConfig.js's sway-
+ * shaped fields (GRAVITY_FACTOR/BASE_STIFFNESS/BASE_DAMPING/etc. are read from
+ * config.js's PHYSICS_CONFIG re-export, same object, so tuning still works —
+ * just know the integration itself happens here, not in physics/).
  */
 function physicsTick(dt, isGameOver = false) {
   if (!state.blocks || state.blocks.length <= 1) return;

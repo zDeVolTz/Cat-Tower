@@ -1,8 +1,14 @@
 /**
- * TowerTiltSolver — Calculates harmonic pendulum tower sway equations,
- * moment of inertia, gravitational torque, and drop impulses.
+ * TowerTiltSolver — Calculates the drop-impulse contribution to tower sway.
+ *
+ * NOTE: this module does NOT drive the live per-frame tower-sway simulation.
+ * The actual continuous pendulum integration (gravity/spring/damping torque,
+ * every physics substep) lives inline in gameLoop.js's physicsTick(), which
+ * predates this modular engine and was never migrated to call in here. Only
+ * calculateDropImpulse() below is on the live path (via PhysicsEngine, called
+ * from physics.js's handleDrop). Keep that in mind before tuning PhysicsConfig
+ * fields that sound sway-related — check gameLoop.js's physicsTick first.
  */
-import { BLOCK_H } from "../config.js";
 import { PhysicsConfig } from "./PhysicsConfig.js";
 
 export class TowerTiltSolver {
@@ -24,28 +30,5 @@ export class TowerTiltSolver {
     const momentOfInertia = totalBlocks * towerHeight * 0.01 + 1;
     const impulse = (effectiveMisalignment * blockMass * (PhysicsConfig.DROP_IMPULSE_FACTOR * 0.35)) / momentOfInertia;
     return impulse;
-  }
-
-  /**
-   * Integrates tower sway angle for a single substep timestep dt.
-   */
-  static stepSway(towerAngle, angularVelocity, totalMass, towerHeight, comOffset, dt) {
-    const P = PhysicsConfig;
-
-    const gravityTorque = Math.sin(towerAngle) * P.GRAVITY_FACTOR * totalMass + (comOffset * 0.0005);
-    const springTorque = -towerAngle * P.BASE_STIFFNESS;
-    const dampingTorque = -angularVelocity * P.BASE_DAMPING;
-
-    const I = totalMass * towerHeight * 0.01 + 1;
-    const alpha = (gravityTorque + springTorque + dampingTorque) / I;
-
-    let newVel = angularVelocity + alpha * dt;
-    newVel = Math.max(-P.MAX_ANGULAR_VELOCITY, Math.min(P.MAX_ANGULAR_VELOCITY, newVel));
-    let newAngle = towerAngle + newVel * dt;
-
-    return {
-      towerAngle: newAngle,
-      towerAngularVelocity: newVel
-    };
   }
 }

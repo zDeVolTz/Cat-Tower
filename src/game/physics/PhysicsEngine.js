@@ -2,7 +2,6 @@
  * PhysicsEngine — Central orchestrator bringing solvers together into a clean, modular API.
  */
 import { PhysicsConfig } from "./PhysicsConfig.js";
-import { Block } from "./Block.js";
 import { TowerState } from "./TowerState.js";
 import { CenterOfMassSolver } from "./CenterOfMassSolver.js";
 import { StabilitySolver } from "./StabilitySolver.js";
@@ -38,10 +37,6 @@ export class PhysicsEngine {
 
   static calculateDropImpulse(misalignment, blockMass, totalBlocks, towerHeight) {
     return TowerTiltSolver.calculateDropImpulse(misalignment, blockMass, totalBlocks, towerHeight);
-  }
-
-  static stepSway(towerAngle, angularVelocity, totalMass, towerHeight, comOffset, dt) {
-    return TowerTiltSolver.stepSway(towerAngle, angularVelocity, totalMass, towerHeight, comOffset, dt);
   }
 
   static stepTeeteringBlock(block, friction, dt, towerAngle = 0) {
