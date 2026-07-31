@@ -7,6 +7,7 @@ import {
   getLevelBlend, lerp
 } from "./config.js";
 import { PhysicsWorld } from "./physics/PhysicsWorld.js";
+import { Block } from "./physics/Block.js";
 
 /**
  * Calculates effective mass of a block based on cat type, golden status, and block width ratio.
@@ -206,20 +207,16 @@ export function resetGameState() {
   state.startFloor = startFloor;
   state.currentLevel = state.selectedStartLevel;
 
-  state.blocks = [{
+  state.blocks = [new Block({
     x: state.columnLeft,
     width: state.columnWidth,
     y: 0,
-    color: "#f4e4c1",
     typeId: "normal",
     isGolden: false,
+    color: "#f4e4c1",
     mass: calculateBlockMass("normal", false, state.columnWidth),
-    settled: true,
-    squishX: 1,
-    squishY: 1,
-    squishVelX: 0,
-    squishVelY: 0
-  }];
+    settled: true
+  })];
 
   // Reset parallel physics world
   state.physicsWorld = new PhysicsWorld();

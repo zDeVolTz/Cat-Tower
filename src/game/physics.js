@@ -19,6 +19,7 @@ import {
 import { AudioEngine } from "../audio/audioEngine.js";
 import { Platform } from "../sdk/youtubeSdk.js";
 import { PhysicsEngine } from "./physics/PhysicsEngine.js";
+import { Block } from "./physics/Block.js";
 
 export { PhysicsEngine };
 
@@ -114,7 +115,7 @@ export function handleDrop() {
     }
   }
 
-  const placed = {
+  const placed = new Block({
     x: localDropX,
     width: dropW,
     y: landingY,
@@ -122,20 +123,19 @@ export function handleDrop() {
     isGolden: state.mover.isGolden,
     color: state.mover.color,
     mass: blockMass,
-    settled: !isUnstableDrop,
-    isTeetering: isUnstableDrop,
-    localTilt: isUnstableDrop ? stability.slideDirection * 0.02 : 0,
-    tiltVel: isUnstableDrop ? stability.slideDirection * 0.001 : 0,
-    tiltDir: stability.slideDirection,
-    // Stored LOCAL (unswayed), matching how .x is stored — subtract the sway that was
-    // present at the support's own y at this moment, so it can be correctly re-swayed
-    // later using whatever towerAngle is current when it's actually used.
-    tiltPivotX: stability.pivotX - getBlockSwayX(landingY - BLOCK_H),
-    squishX: 1.12,
-    squishY: 0.90,
-    squishVelX: 0,
-    squishVelY: 0
-  };
+    settled: !isUnstableDrop
+  });
+  
+  placed.isTeetering = isUnstableDrop;
+  placed.localTilt = isUnstableDrop ? stability.slideDirection * 0.02 : 0;
+  placed.tiltVel = isUnstableDrop ? stability.slideDirection * 0.001 : 0;
+  placed.tiltDir = stability.slideDirection;
+  // Stored LOCAL (unswayed), matching how .x is stored — subtract the sway that was
+  // present at the support's own y at this moment, so it can be correctly re-swayed
+  // later using whatever towerAngle is current when it's actually used.
+  placed.tiltPivotX = stability.pivotX - getBlockSwayX(landingY - BLOCK_H);
+  placed.squishX = 1.12;
+  placed.squishY = 0.90;
 
   if (isUnstableDrop) {
     state.combo = 0;
