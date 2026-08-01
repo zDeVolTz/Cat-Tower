@@ -42,10 +42,10 @@ export class ActiveCatSystem {
     mover.state = "flying";
     mover.flightProgress = 0; // t from 0 to 1
 
-    // Horizontal flight bounds (start completely off-screen on the side)
-    const extraOff = state.W * 0.3; 
-    mover.startX = mover.spawnFromLeft ? mover.leftBound - extraOff : mover.rightBound + extraOff;
-    mover.endX   = mover.spawnFromLeft ? mover.rightBound + extraOff : mover.leftBound - extraOff;
+    // Horizontal flight bounds (using calculated lane bounds)
+    // By starting exactly at leftBound, it appears right at the edge of the game zone.
+    mover.startX = mover.spawnFromLeft ? mover.leftBound : mover.rightBound;
+    mover.endX   = mover.spawnFromLeft ? mover.rightBound : mover.leftBound;
 
     mover._released = false;
 
@@ -108,8 +108,8 @@ export class ActiveCatSystem {
 
   static updateFlying(mover, k, state) {
     // Phase speed determines how fast it crosses the screen.
-    // 0.5 means it takes about 120 frames (2 seconds) to cross.
-    mover.flightProgress += 0.015 * CFG.PHASE_SPEED * k; 
+    // 0.035 means it takes about 30 frames (0.5 seconds) to cross, making it a very fast "shot".
+    mover.flightProgress += 0.035 * CFG.PHASE_SPEED * k; 
     
     // If it missed the window (flew past the screen), we need to spawn a new one.
     if (mover.flightProgress > 1) {
