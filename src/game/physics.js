@@ -52,6 +52,11 @@ export function checkTowerCenterOfMass() {
   return PhysicsEngine.checkTowerCenterOfMass(state.blocks, state.columnLeft, state.columnWidth);
 }
 
+export function releaseActiveCat() {
+  if (state.status !== "playing" || !state.mover || state.mover.state === "falling") return;
+  state.mover.state = "falling";
+}
+
 export function handleDrop() {
   if (state.status !== "playing" || !state.mover) return;
 

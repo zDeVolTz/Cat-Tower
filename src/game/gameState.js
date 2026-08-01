@@ -326,7 +326,8 @@ export function spawnMover() {
 
   const type = BLOCK_TYPES[chosenTypeId] || BLOCK_TYPES.normal;
   const color = type.palette[state.blocks.length % type.palette.length];
-  const spawnY = getTopFloorY();
+  const AIR_GAP = BLOCK_H * 3; // 3 blocks gap for overhead movement
+  const spawnY = getTopFloorY() + AIR_GAP;
 
   // On desktop, spawn within central arcade lane bounds for focused gameplay
   const limits = getMoverLimits();
@@ -342,6 +343,8 @@ export function spawnMover() {
     dir: fromLeft ? 1 : -1,
     speed,
     color,
+    state: "moving",
+    vy: 0,
     // Bug fix: this was previously never set, so physics.js's handleDrop() always fell back
     // to a flat type.weight for every real dropped block (only the permanent base block ever
     // got the real width-scaled mass) — the "longer blocks are significantly heavier" design

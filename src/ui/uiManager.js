@@ -3,7 +3,7 @@
  */
 import { LEVELS } from "../game/config.js";
 import { state, resetGameState, resetProgress, getFloorCount, getBlockSwayX, getCriticalTilt, getLaneBounds } from "../game/gameState.js";
-import { handleDrop } from "../game/physics.js";
+import { handleDrop, releaseActiveCat } from "../game/physics.js";
 import { AudioEngine } from "../audio/audioEngine.js";
 
 let startPanel, overPanel, musicBtn, volumeSlider, scoreEl, floorLabelEl, levelBadgeEl, powerRowEl, finalScoreText, floorReachedText, bestScoreText, levelButtonsEls, resetProgressBtn;
@@ -139,7 +139,7 @@ export function initUI(canvasElement) {
   canvasElement.addEventListener("pointerdown", () => {
     AudioEngine.ensureAudio();
     if (state.status === "playing") {
-      handleDrop();
+      releaseActiveCat();
       updateHUD();
     }
   });
@@ -147,7 +147,7 @@ export function initUI(canvasElement) {
   window.addEventListener("keydown", (e) => {
     if (e.code === "Space" && state.status === "playing") {
       AudioEngine.ensureAudio();
-      handleDrop();
+      releaseActiveCat();
       updateHUD();
     }
   });

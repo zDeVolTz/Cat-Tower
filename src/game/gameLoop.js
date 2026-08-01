@@ -5,6 +5,7 @@ import { BLOCK_H, GROUND_MARGIN, BLOCK_TYPES, PHYSICS_CONFIG } from "./config.js
 import { state, spawnParticles, spawnFloatingText, uiScale, getFloorCount, getBlockSwayX, getCriticalTilt, getMoverLimits, getLaneBounds } from "./gameState.js";
 import { handleGameOver, PhysicsEngine } from "./physics.js";
 import { updateHUD } from "../ui/uiManager.js";
+import { ActiveCatSystem } from "./physics/ActiveCatSystem.js";
 
 // Accumulator for fixed timestep
 let physicsAccumulator = 0;
@@ -68,17 +69,7 @@ export function update(dt) {
 
   // 3. Mover Movement & Golden Sparkles
   if (state.status === "playing" && state.mover) {
-    state.mover.x += state.mover.dir * state.mover.speed * k;
-    const limits = getMoverLimits();
-
-    if (state.mover.x < limits.left) {
-      state.mover.x = limits.left;
-      state.mover.dir = 1;
-    }
-    if (state.mover.x > limits.right) {
-      state.mover.x = limits.right;
-      state.mover.dir = -1;
-    }
+    ActiveCatSystem.update(state.mover, k, state);
 
     if (state.mover.isGolden && Math.random() < 0.3) {
       const sy = state.H - GROUND_MARGIN - (state.mover.y - state.cameraY) - BLOCK_H / 2;
