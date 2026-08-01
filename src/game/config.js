@@ -10,6 +10,38 @@ export const PERFECT_TOLERANCE_BASE = 10;
 export const GROUND_MARGIN = 60;       // px gap kept between the tower base and the very bottom of the screen
 export const CAMERA_TRAIL_FRACTION = 0.55; // fraction of screen height the tower can grow before the camera starts following
 
+// ─── Active Cat Trajectory — Gameplay Constants ─────────────────────────────
+// Source of truth for the airborne cat mechanic. All values are gameplay rules,
+// intentionally independent of camera presentation parameters.
+// Units: fractions are relative to viewport H; block-relative values use BLOCK_H.
+export const ACTIVE_CAT_TRAJECTORY = {
+  // ── Screen margins (trajectory ceiling) ──
+  ZONE_TOP_RATIO:       0.08,   // fraction of H reserved above trajectory (notch/status bar)
+  ZONE_TOP_MIN_PX:      55,     // absolute minimum top margin in px
+
+  // ── Safe zone (gap between cat and tower) ──
+  // Clearance = gameplay gap + cat visual extent. Expressed in BLOCK_H multiples
+  // so it scales naturally with block size changes.
+  CLEARANCE_BLOCKS:     1.0,    // minimum gap between cat bottom and tower top (1× BLOCK_H = 46px)
+
+  // Cat visual extent below its center point (body/2 + ears overshoot)
+  CAT_VISUAL_EXTENT_PX: 30,     // ≈ (BLOCK_H + 14 ears) / 2
+
+  // ── Trajectory limits ──
+  MIN_ARC_HEIGHT_PX:    46,     // minimum vertical arc sweep (= 1 BLOCK_H)
+  MAX_FLOOR_RATIO:      0.40,   // trajectory floor never goes below 40% of screen
+
+  // ── Movement (k-system: values per frame at 60 fps) ──
+  PHASE_SPEED:          0.025,  // oscillation speed (rad per k-unit). Full cycle ≈ 4.2 s
+
+  // ── Horizontal bounds ──
+  OFFSCREEN_FRACTION:   0.15,   // how much of cat width peeks off-screen at turnaround edges
+
+  // ── Release / TAP physics (k-system units, same as SLOW_FALL_GRAVITY) ──
+  RELEASE_HORIZONTAL_RETAIN: 0.4,  // preserve 40% of trajectory horizontal velocity
+  FALL_GRAVITY:              2.0,  // world-space downward accel after release (matches existing)
+};
+
 // Level Config & Checkpoints (1 level = 10 floors)
 export const LEVELS = [
   {

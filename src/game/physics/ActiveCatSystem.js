@@ -1,103 +1,211 @@
+/**
+ * ActiveCatSystem — Sinusoidal Ping-Pong Trajectory + TAP Release.
+ *
+ * Architecture:
+ *   GAMEPLAY RULE (ACTIVE_CAT_TRAJECTORY in config.js)
+ *     → SAFE AIR ZONE (calculated here at mover spawn time)
+ *       → CAT TRAJECTORY (sinusoidal arc, screen-space)
+ *         → TAP RELEASE → world-space falling → existing tower physics
+ *
+ * The trajectory operates in screen-space (Y=0 is top of viewport).
+ * On release, position is already synced to world-space for handleDrop().
+ *
+ * All velocities/accelerations use the project's k-system:
+ *   k = (dt * 60) / 1000   (1.0 at 60 fps, scales with actual framerate)
+ */
 import { findSurfaceYForFootprint, handleDrop } from "../physics.js";
-import { getMoverLimits } from "../gameState.js";
-import { BLOCK_H, GROUND_MARGIN } from "../config.js";
+import { getMoverLimits, getTopFloorY, getLaneBounds } from "../gameState.js";
+import { BLOCK_H, GROUND_MARGIN, CAMERA_TRAIL_FRACTION, ACTIVE_CAT_TRAJECTORY as CFG } from "../config.js";
 
-export const ACTIVE_CAT_CONFIG = {
-  ACTIVE_CAT_ZONE_TOP: 0.15,          // Peak of the parabola (15% from top of screen)
-  PARABOLA_GRAVITY: 0.25,             // Gravity for the screen-space arc flight
-  SLOW_FALL_GRAVITY: 2.0,             // Slow vertical gravity after TAP (in world space)
-};
+// Re-export config for backward compatibility with existing tests
+export const ACTIVE_CAT_CONFIG = CFG;
 
 export class ActiveCatSystem {
+
+  // ── Spawn / Init ─────────────────────────────────────────────────────────
+
   static initMover(mover, state) {
     mover.spawnFromLeft = mover.dir === 1;
-    this.respawn(mover, state);
-    
-    // Immediately calculate world Y so there's no 1-frame render flash at old Y coordinates
-    mover.y = state.cameraY + state.H - GROUND_MARGIN - mover.screenY - BLOCK_H;
+
+    // ── Trajectory bounds (screen-space, computed once per mover lifetime) ──
+    const bounds = this.calculateBounds(state);
+    mover.trajectoryCeiling = bounds.trajectoryCeiling;
+    mover.trajectoryFloor   = bounds.trajectoryFloor;
+    mover.arcHeight         = bounds.arcHeight;
+
+    // ── Horizontal bounds ──
+    const hBounds = this.calculateHorizontalBounds(mover, state);
+    mover.leftBound  = hBounds.left;
+    mover.rightBound = hBounds.right;
+
+    // ── Phase: sin(phase) oscillates -1 ↔ +1 ──
+    // -π/2 → leftmost (t=0),  +π/2 → rightmost (t=1)
+    mover.phase = mover.spawnFromLeft ? -Math.PI / 2 : Math.PI / 2;
+
+    // ── Release tracking ──
+    mover._released = false;
+
+    // ── Compute initial position ──
+    this.applyTrajectoryPosition(mover, state);
   }
 
-  static respawn(mover, state) {
-    const limits = getMoverLimits();
-    // Calculate dynamic jump speeds based on screen size
-    const targetPeakY = state.H * ACTIVE_CAT_CONFIG.ACTIVE_CAT_ZONE_TOP;
-    // Spawn somewhat lower than the peak (e.g., 25% of screen height below peak)
-    const arcHeight = state.H * 0.25;
-    const startY = targetPeakY + arcHeight; 
-    
-    // v^2 = 2 * g * h
-    const jumpSpeedY = Math.sqrt(2 * ACTIVE_CAT_CONFIG.PARABOLA_GRAVITY * arcHeight);
-    
-    // time to peak
-    const timeToPeak = jumpSpeedY / ACTIVE_CAT_CONFIG.PARABOLA_GRAVITY;
-    
-    // We want the cat to reach the peak exactly at the center of the arcade lane
-    const centerLaneX = limits.spawnLeft + (limits.spawnRight - limits.spawnLeft) / 2;
-    
-    // Spawn exactly from the lane boundaries defined by getMoverLimits
-    const spawnXLeft = limits.spawnLeft;
-    const spawnXRight = limits.spawnRight;
-    
-    const distToCenter = mover.spawnFromLeft 
-      ? (centerLaneX - spawnXLeft) 
-      : (spawnXRight - centerLaneX);
-      
-    const jumpSpeedX = distToCenter / timeToPeak;
+  // ── Bounds Calculation ───────────────────────────────────────────────────
 
-    mover.x = mover.spawnFromLeft ? spawnXLeft : spawnXRight;
-    mover.vx = mover.spawnFromLeft ? jumpSpeedX : -jumpSpeedX;
-    
-    mover.screenY = startY;
-    mover.screenVy = -jumpSpeedY; // Negative is UP in screen space
+  /**
+   * Returns { trajectoryCeiling, trajectoryFloor, arcHeight } in screen-space Y.
+   *
+   * Gameplay-first approach:
+   *   1. Read the ACTUAL tower top position on screen (not derived from camera params).
+   *   2. Apply clearance (gameplay rule) to guarantee separation.
+   *   3. Clamp to ensure minimum arc height and screen margins.
+   *
+   * Changing CAMERA_TRAIL_FRACTION shifts where the tower appears on screen,
+   * but the clearance rule still holds — the trajectory adapts.
+   */
+  static calculateBounds(state) {
+    const H = state.H;
+
+    // ── Ceiling (top of trajectory zone) ──
+    const topMargin = Math.max(H * CFG.ZONE_TOP_RATIO, CFG.ZONE_TOP_MIN_PX);
+    const trajectoryCeiling = topMargin + CFG.CAT_VISUAL_EXTENT_PX;
+
+    // ── Tower top on screen (current state) ──
+    const topY = getTopFloorY();
+    // Convert world-space tower top to screen-space Y (same formula as renderer.js:109)
+    const screenTowerTop = H - GROUND_MARGIN - (topY - state.cameraY) - BLOCK_H;
+
+    // ── Clearance ──
+    const clearance = CFG.CLEARANCE_BLOCKS * BLOCK_H;
+
+    // ── Floor (bottom of trajectory zone) = tower top - clearance - cat extent ──
+    let trajectoryFloor = screenTowerTop - clearance - CFG.CAT_VISUAL_EXTENT_PX;
+
+    // Clamp: floor can't go below MAX_FLOOR_RATIO (cat stays in upper portion)
+    trajectoryFloor = Math.min(trajectoryFloor, H * CFG.MAX_FLOOR_RATIO);
+
+    // Enforce minimum arc height
+    if (trajectoryFloor - trajectoryCeiling < CFG.MIN_ARC_HEIGHT_PX) {
+      trajectoryFloor = trajectoryCeiling + CFG.MIN_ARC_HEIGHT_PX;
+    }
+
+    return {
+      trajectoryCeiling,
+      trajectoryFloor,
+      arcHeight: trajectoryFloor - trajectoryCeiling
+    };
   }
+
+  /**
+   * Horizontal bounds for trajectory oscillation.
+   * Cat peeks slightly off-screen at turnaround edges for natural feel.
+   */
+  static calculateHorizontalBounds(mover, state) {
+    const off = mover.width * CFG.OFFSCREEN_FRACTION;
+
+    if (state.W <= 500) {
+      // Mobile: use full screen width
+      return {
+        left:  -off,
+        right: state.W - mover.width + off
+      };
+    } else {
+      // Desktop: use arcade lane bounds
+      const { laneLeft, laneRight } = getLaneBounds();
+      return {
+        left:  laneLeft - off,
+        right: laneRight - mover.width + off
+      };
+    }
+  }
+
+  // ── Main Update ──────────────────────────────────────────────────────────
 
   static update(mover, k, state) {
     if (!mover) return;
 
     if (mover.state === "falling") {
+      // First frame after TAP: compute release momentum
+      if (!mover._released) {
+        this.computeReleaseMomentum(mover);
+        mover._released = true;
+      }
       this.updateFalling(mover, k, state);
     } else {
       this.updateMoving(mover, k, state);
     }
   }
 
+  // ── Trajectory (airborne, before TAP) ────────────────────────────────────
+
   static updateMoving(mover, k, state) {
-    // 1. Move in Screen Space (Parabola Arc)
-    mover.screenVy += ACTIVE_CAT_CONFIG.PARABOLA_GRAVITY * k;
-    mover.screenY += mover.screenVy * k;
-    
-    mover.x += mover.vx * k;
+    // 1. Advance phase (continuous, monotonic)
+    mover.phase += CFG.PHASE_SPEED * k;
 
-    // 2. Map Screen Y back to World Y for correct rendering and physics
-    mover.y = state.cameraY + state.H - GROUND_MARGIN - mover.screenY - BLOCK_H;
+    // 2. Derive screen-space position from phase
+    this.applyTrajectoryPosition(mover, state);
 
-    // 3. Re-spawn if it flew completely behind the visual lane walls
-    const limits = getMoverLimits();
-    // It is fully behind the left wall when x <= limits.spawnLeft
-    const isOffLeft = mover.x <= limits.spawnLeft && mover.vx < 0;
-    // It is fully behind the right wall when x >= limits.spawnRight
-    const isOffRight = mover.x >= limits.spawnRight && mover.vx > 0;
-    
-    if (isOffLeft || isOffRight || mover.screenY > state.H + 100) {
-      // Alternate sides. Because it fully hides first, it will look like a new cat 
-      // is coming out, rather than the same cat bouncing.
-      mover.spawnFromLeft = !mover.spawnFromLeft;
-      this.respawn(mover, state);
-    }
+    // 3. Update facing direction (cos > 0 → moving right)
+    mover.dir = Math.cos(mover.phase) >= 0 ? 1 : -1;
   }
 
+  /**
+   * Compute screen-space X and Y from the current phase, then sync to world Y.
+   *
+   * Horizontal:  t = (sin(phase) + 1) / 2  →  0 at left, 1 at right
+   *   - cos(phase) = 0 at edges → velocity = 0 → smooth turnaround
+   *   - cos(phase) = ±1 at center → max velocity → fast crossing
+   *
+   * Vertical:    arcT = sin(t × π)  →  0 at edges, 1 at center
+   *   - Cat arcs highest at center of screen (peak of leap)
+   *   - Cat is at trajectory floor at turnaround edges
+   */
+  static applyTrajectoryPosition(mover, state) {
+    const t = (Math.sin(mover.phase) + 1) / 2;  // 0..1 smooth oscillation
+
+    // Horizontal
+    mover.x = mover.leftBound + (mover.rightBound - mover.leftBound) * t;
+
+    // Vertical: sinusoidal arc (screen-space Y, 0=top)
+    const arcT = Math.sin(t * Math.PI);  // 0 at edges, 1 at center
+    const screenY = mover.trajectoryFloor - arcT * mover.arcHeight;
+
+    // Convert screen-space Y to world-space Y for rendering + physics
+    // Inverse of renderer.js:109:  screenY = H - GROUND_MARGIN - (y - cameraY) - BLOCK_H
+    mover.y = state.cameraY + state.H - GROUND_MARGIN - screenY - BLOCK_H;
+  }
+
+  // ── Release (TAP moment) ─────────────────────────────────────────────────
+
+  /**
+   * Compute horizontal velocity at the moment of release and apply retention.
+   * Called once, on the first update frame after state changes to "falling".
+   *
+   * dx/dk = d/dk [ leftBound + (rightBound - leftBound) × (sin(phase) + 1) / 2 ]
+   *       = (rightBound - leftBound) × 0.5 × cos(phase) × PHASE_SPEED
+   */
+  static computeReleaseMomentum(mover) {
+    const hRange = (mover.rightBound || 0) - (mover.leftBound || 0);
+    const rawVx  = hRange * 0.5 * Math.cos(mover.phase || 0) * CFG.PHASE_SPEED;
+
+    mover.vx = rawVx * CFG.RELEASE_HORIZONTAL_RETAIN;
+    // No initial downward kick — gravity alone pulls the cat down,
+    // giving the "leap" feel requested in the design doc.
+    if (mover.vy === undefined) mover.vy = 0;
+  }
+
+  // ── Falling (after TAP, before landing) ──────────────────────────────────
+
   static updateFalling(mover, k, state) {
-    // After TAP, the cat falls straight down slowly.
-    // обнуляем горизонтальную скорость как просил пользователь ("просто относительно медленно падал вниз")
-    mover.vx = 0;
+    // Horizontal drift (retained momentum from trajectory)
+    mover.x += (mover.vx || 0) * k;
 
-    // Y goes UP in this game logic (0 is ground, higher is up)
-    if (mover.vy === undefined) mover.vy = 0; // Initialize if missing
-    mover.vy -= ACTIVE_CAT_CONFIG.SLOW_FALL_GRAVITY * k;
-    mover.y += mover.vy * k;
+    // World-space gravity (Y goes UP in this project; negative vy = falling)
+    if (mover.vy === undefined) mover.vy = 0;
+    mover.vy -= CFG.FALL_GRAVITY * k;
+    mover.y  += mover.vy * k;
 
+    // Landing check — delegates to existing tower physics
     const landingY = findSurfaceYForFootprint(mover.x, mover.x + mover.width);
-    
     if (mover.y <= landingY) {
       mover.y = landingY;
       handleDrop();
