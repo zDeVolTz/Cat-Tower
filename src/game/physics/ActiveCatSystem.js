@@ -30,7 +30,7 @@ export class ActiveCatSystem {
     // ── Trajectory bounds (screen-space, computed once per mover lifetime) ──
     const bounds = this.calculateBounds(state);
     mover.trajectoryCeiling = bounds.trajectoryCeiling;
-    mover.trajectoryFloor   = bounds.trajectoryFloor; // Apex of the parabola
+    mover.trajectoryFloor   = bounds.trajectoryFloor; // Floor of trajectory zone
     mover.arcHeight         = bounds.arcHeight;
 
     // ── Horizontal bounds ──
@@ -38,18 +38,13 @@ export class ActiveCatSystem {
     mover.leftBound  = hBounds.left;
     mover.rightBound = hBounds.right;
 
-    // ── Parabola Flight Parameters ──
-    mover.state = "flying";
-    mover.flightProgress = 0; // t from 0 to 1
-
-    // Horizontal flight bounds (using calculated lane bounds)
-    // By starting exactly at leftBound, it appears right at the edge of the game zone.
-    mover.startX = mover.spawnFromLeft ? mover.leftBound : mover.rightBound;
-    mover.endX   = mover.spawnFromLeft ? mover.rightBound : mover.leftBound;
-
+    // ── Continuous Oscillation Phase ──
+    // -π/2 → leftmost (t=0), +π/2 → rightmost (t=1)
+    mover.phase = mover.spawnFromLeft ? -Math.PI / 2 : Math.PI / 2;
+    mover.state = "moving";
     mover._released = false;
 
-    this.applyFlightPosition(mover, state);
+    this.applyTrajectoryPosition(mover, state);
   }
 
   // ── Bounds Calculation ───────────────────────────────────────────────────
@@ -99,43 +94,35 @@ export class ActiveCatSystem {
         mover._released = true;
       }
       this.updateFalling(mover, k, state);
-    } else if (mover.state === "flying") {
-      this.updateFlying(mover, k, state);
+    } else {
+      this.updateMoving(mover, k, state);
     }
   }
 
   // ── Trajectory (airborne, before TAP) ────────────────────────────────────
 
-  static updateFlying(mover, k, state) {
-    // Phase speed determines how fast it crosses the screen.
-    // 0.035 means it takes about 30 frames (0.5 seconds) to cross, making it a very fast "shot".
-    mover.flightProgress += 0.035 * CFG.PHASE_SPEED * k; 
-    
-    // If it missed the window (flew past the screen), we need to spawn a new one.
-    if (mover.flightProgress > 1) {
-      // It flew away completely.
-      // Easiest way to respawn without breaking state logic is to mark it as settled
-      // out of bounds so the drop handler cleans it up, OR we can just respawn directly.
-      // But we shouldn't import spawnMover here directly to avoid circular dependency.
-      // We can just set its state to a special flag and let gameLoop handle it,
-      // or we can simulate a drop far away.
-      mover.state = "missed";
-      return;
-    }
+  static updateMoving(mover, k, state) {
+    // 1. Advance phase with high speed (3.2x multiplier for fast shot feel)
+    const SPEED_MULT = 3.2;
+    mover.phase += CFG.PHASE_SPEED * SPEED_MULT * k;
 
-    this.applyFlightPosition(mover, state);
+    // 2. Derive screen-space position from phase (naturally bounces off walls)
+    this.applyTrajectoryPosition(mover, state);
+
+    // 3. Track direction facing
+    const speedX = Math.cos(mover.phase);
+    mover.dir = speedX >= 0 ? 1 : -1;
   }
 
-  static applyFlightPosition(mover, state) {
-    const t = mover.flightProgress;
+  static applyTrajectoryPosition(mover, state) {
+    // t oscillates continuously 0 ↔ 1 ↔ 0 (bouncing off walls at 0 and 1)
+    const t = (Math.sin(mover.phase) + 1) / 2;
 
-    // Horizontal: linear interpolation from startX to endX
-    mover.x = mover.startX + (mover.endX - mover.startX) * t;
+    // Horizontal
+    mover.x = mover.leftBound + (mover.rightBound - mover.leftBound) * t;
 
-    // Vertical: Parabola. At t=0 and t=1, arcT = 0. At t=0.5, arcT = 1.
-    const arcT = 4 * t * (1 - t);
-    
-    // Y at t=0 is trajectoryFloor. Y at t=0.5 is trajectoryCeiling (which is trajectoryFloor - arcHeight)
+    // Vertical sinusoidal arc within safe zone
+    const arcT = Math.sin(t * Math.PI);
     const screenY = mover.trajectoryFloor - arcT * mover.arcHeight;
 
     // Convert screen-space Y to world-space Y
@@ -145,14 +132,11 @@ export class ActiveCatSystem {
   // ── Release (TAP moment) ─────────────────────────────────────────────────
 
   static computeReleaseMomentum(mover) {
-    // Horizontal velocity at release.
-    // dx/dt = (endX - startX) * 0.015 * PHASE_SPEED
-    const rawVx = (mover.endX - mover.startX) * 0.015 * CFG.PHASE_SPEED;
-    mover.vx = rawVx * CFG.RELEASE_HORIZONTAL_RETAIN;
+    const hRange = (mover.rightBound || 0) - (mover.leftBound || 0);
+    const SPEED_MULT = 3.2;
+    const rawVx  = hRange * 0.5 * Math.cos(mover.phase || 0) * CFG.PHASE_SPEED * SPEED_MULT;
 
-    // Optional: Vertical momentum retention. Since it's a parabola, dy/dt is not 0 except at apex.
-    // If we want it to just drop linearly, we can leave vy = 0. 
-    // Given the user wants a simple "shot" result, keeping vy = 0 (gravity only) is safest.
+    mover.vx = rawVx * CFG.RELEASE_HORIZONTAL_RETAIN;
     if (mover.vy === undefined) mover.vy = 0;
   }
 
