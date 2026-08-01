@@ -144,8 +144,36 @@ export class ActiveCatSystem {
     // 2. Derive screen-space position from phase
     this.applyTrajectoryPosition(mover, state);
 
-    // 3. Update facing direction (cos > 0 → moving right)
-    mover.dir = Math.cos(mover.phase) >= 0 ? 1 : -1;
+    // 3. Cat-like Movement & Animation!
+    const speedX = Math.cos(mover.phase); // -1 to 1
+
+    // A. 3D Turning (Flip) & Squish
+    // Fast smooth transition between -1 and 1 for direction facing
+    let turnFactor = speedX / 0.15;
+    if (turnFactor > 1) turnFactor = 1;
+    if (turnFactor < -1) turnFactor = -1;
+    
+    // Stretch horizontally when moving fast, squish when slow.
+    // Multiply by turnFactor to flip the cat horizontally!
+    mover.squishX = turnFactor * (0.8 + 0.3 * Math.abs(speedX));
+    mover.squishY = 1.2 - 0.3 * Math.abs(speedX);
+
+    // B. Tilt (Rotation)
+    // Tilt the cat into the direction of movement.
+    // speedX is max 1 or -1. Max tilt is ~0.15 radians (8.5 degrees).
+    mover.rot = speedX * 0.15;
+
+    // C. Bounding (Vertical Bobbing)
+    // Add high-frequency leaps on top of the main arc trajectory.
+    const bobFreq = 8; // Bounces per full sweep
+    const bobPhase = mover.phase * bobFreq;
+    // Math.abs(Math.sin) creates a bouncy arc sequence. 
+    // Y goes up in world space, so adding to Y makes it bounce up on screen.
+    const bobOffset = Math.abs(Math.sin(bobPhase)) * 14; 
+    mover.y += bobOffset;
+
+    // 4. Update facing direction for gameplay consistency (e.g., spawn offsets if any)
+    mover.dir = speedX >= 0 ? 1 : -1;
   }
 
   /**
@@ -204,10 +232,18 @@ export class ActiveCatSystem {
     mover.vy -= CFG.FALL_GRAVITY * k;
     mover.y  += mover.vy * k;
 
+    // Gently reset pose (squish and tilt) while falling
+    if (mover.squishX !== undefined) mover.squishX += (1 - Math.abs(mover.squishX)) * 0.1 * k * Math.sign(mover.squishX);
+    if (mover.squishY !== undefined) mover.squishY += (1 - mover.squishY) * 0.1 * k;
+    if (mover.rot !== undefined) mover.rot *= Math.pow(0.9, k);
+
     // Landing check — delegates to existing tower physics
     const landingY = findSurfaceYForFootprint(mover.x, mover.x + mover.width);
     if (mover.y <= landingY) {
       mover.y = landingY;
+      mover.squishX = 1; // Snap to normal on land
+      mover.squishY = 1;
+      mover.rot = 0;
       handleDrop();
     }
   }

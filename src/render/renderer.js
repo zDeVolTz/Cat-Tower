@@ -169,7 +169,14 @@ export function render() {
   // 4. Render Active Mover Block
   if (state.mover && state.status === "playing") {
     const moverY = state.H - GROUND_MARGIN - (state.mover.y - state.cameraY) - BLOCK_H;
-    drawCatBlock(ctx, state.mover, state.mover.x, moverY);
+    ctx.save();
+    const cx = state.mover.x + state.mover.width / 2;
+    const cy = moverY + BLOCK_H / 2;
+    ctx.translate(cx, cy);
+    if (state.mover.rot) ctx.rotate(state.mover.rot);
+    ctx.translate(-cx, -cy);
+    drawCatBlock(ctx, state.mover, state.mover.x, moverY, state.mover.rot || 0);
+    ctx.restore();
   }
 
   // 5. Render Falling Debris
