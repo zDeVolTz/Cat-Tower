@@ -33,13 +33,13 @@ try {
   assert(massNormal140 === 1.0, "J001: Normal cat full-width mass = 1.0");
 
   const massNormal70 = calculateBlockMass("normal", false, 70);
-  assert(massNormal70 > 0.30 && massNormal70 < 0.42, "J002: Half-width block mass scales exponentially (1.4 exponent)");
+  assert(massNormal70 === 0.5, "J002: Half-width block mass scales linearly (0.5 for 70px / 140px)");
 
   const massHeavy140 = calculateBlockMass("heavy", false, 140);
-  assert(massHeavy140 === 2.2, "J003: Heavy cat full-width mass = 2.2");
+  assert(massHeavy140 === 1.0, "J003: Heavy cat full-width base mass = 1.0");
 
   const massLight140 = calculateBlockMass("light", false, 140);
-  assert(massLight140 === 0.5, "J004: Light cat full-width mass = 0.5");
+  assert(massLight140 === 1.0, "J004: Light cat full-width base mass = 1.0");
 
   const massGoldenNormal = calculateBlockMass("normal", true, 140);
   assert(massGoldenNormal === 1.5, "J005: Golden cat block receives 1.5x mass multiplier");

@@ -1,6 +1,7 @@
 /**
  * PhysicsEngine — Central orchestrator bringing solvers together into a clean, modular API.
  */
+import { BLOCK_TYPES } from "../config.js";
 import { PhysicsConfig } from "./PhysicsConfig.js";
 import { TowerState } from "./TowerState.js";
 import { CenterOfMassSolver } from "./CenterOfMassSolver.js";
@@ -57,5 +58,13 @@ export class PhysicsEngine {
 
   static applyCounterStamping(teeteringBlock, landingBlockMass) {
     return CatModifierSystem.applyCounterStamping(teeteringBlock, landingBlockMass);
+  }
+
+  static getBlockMass(block) {
+    if (!block) return 1.0;
+    if (block.physics && block.physics.mass !== undefined) return block.physics.mass;
+    if (block.mass !== undefined) return block.mass;
+    const type = BLOCK_TYPES[block.typeId] || BLOCK_TYPES.normal;
+    return type.mass || type.weight || 1.0;
   }
 }

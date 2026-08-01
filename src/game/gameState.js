@@ -17,8 +17,7 @@ export function calculateBlockMass(typeId, isGolden, blockWidth) {
   const type = BLOCK_TYPES[typeId] || BLOCK_TYPES.normal;
   const baseMass = type.mass || type.weight || 1.0;
   const colW = state.columnWidth || 140;
-  const fraction = Math.max(0.1, blockWidth / colW);
-  let mass = baseMass * Math.pow(fraction, PHYSICS_CONFIG.WEIGHT_LENGTH_EXPONENT || 1.4);
+  let mass = baseMass * (blockWidth / colW);
   if (isGolden) mass *= 1.5;
   return mass;
 }

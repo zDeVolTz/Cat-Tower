@@ -86,8 +86,7 @@ export class PhysicsWorld {
 
     for (let v = 0; v < count; v++) {
       const { block: b, originalIdx: i } = visibleBlocks[v];
-      const type = BLOCK_TYPES[b.typeId] || BLOCK_TYPES.normal;
-      let mass = type.weight;
+      let mass = PhysicsEngine.getBlockMass(b);
       if (i === 0) mass = 10; // Ground base block is heavy
       else if (b.isGolden) mass *= 1.5;
 
