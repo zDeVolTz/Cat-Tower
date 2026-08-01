@@ -2,7 +2,7 @@
  * Physics loop update tick with Harmonic Procedural Sway, particle animation & camera lerp.
  */
 import { BLOCK_H, GROUND_MARGIN, BLOCK_TYPES, PHYSICS_CONFIG } from "./config.js";
-import { state, spawnParticles, spawnFloatingText, uiScale, getFloorCount, getBlockSwayX, getCriticalTilt, getMoverLimits, getLaneBounds } from "./gameState.js";
+import { state, spawnParticles, spawnFloatingText, uiScale, getFloorCount, getBlockSwayX, getCriticalTilt, getMoverLimits, getLaneBounds, spawnMover } from "./gameState.js";
 import { handleGameOver, PhysicsEngine } from "./physics.js";
 import { updateHUD } from "../ui/uiManager.js";
 import { ActiveCatSystem } from "./physics/ActiveCatSystem.js";
@@ -71,7 +71,9 @@ export function update(dt) {
   if (state.status === "playing" && state.mover) {
     ActiveCatSystem.update(state.mover, k, state);
 
-    if (state.mover.isGolden && Math.random() < 0.3) {
+    if (state.mover.state === "missed") {
+      spawnMover();
+    } else if (state.mover.isGolden && Math.random() < 0.3) {
       const sy = state.H - GROUND_MARGIN - (state.mover.y - state.cameraY) - BLOCK_H / 2;
       spawnParticles(state.mover.x + state.mover.width / 2, sy, 1, ["#ffe08a", "#fff3c4"], 1, 400);
     }

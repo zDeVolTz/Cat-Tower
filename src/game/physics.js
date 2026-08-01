@@ -53,7 +53,7 @@ export function checkTowerCenterOfMass() {
 }
 
 export function releaseActiveCat() {
-  if (state.status !== "playing" || !state.mover || state.mover.state === "falling") return;
+  if (state.status !== "playing" || !state.mover || state.mover.state === "falling" || state.mover.state === "launching") return;
   state.mover.state = "falling";
 }
 
