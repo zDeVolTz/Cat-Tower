@@ -41,12 +41,9 @@ export class ActiveCatSystem {
     // ── Parabola Flight Parameters ──
     mover.state = "flying";
     mover.flightProgress = 0; // t from 0 to 1
-    
-    // Start well below the screen
-    mover.startScreenY = state.H + 300; 
 
-    // Horizontal flight bounds (slightly wider to ensure it starts/ends completely off-screen)
-    const extraOff = state.W * 0.2;
+    // Horizontal flight bounds (start completely off-screen on the side)
+    const extraOff = state.W * 0.3; 
     mover.startX = mover.spawnFromLeft ? mover.leftBound - extraOff : mover.rightBound + extraOff;
     mover.endX   = mover.spawnFromLeft ? mover.rightBound + extraOff : mover.leftBound - extraOff;
 
@@ -138,10 +135,8 @@ export class ActiveCatSystem {
     // Vertical: Parabola. At t=0 and t=1, arcT = 0. At t=0.5, arcT = 1.
     const arcT = 4 * t * (1 - t);
     
-    // Y at t=0 is startScreenY. Y at t=0.5 is trajectoryFloor (apex).
-    // So arcHeight is startScreenY - trajectoryFloor.
-    const totalArcHeight = mover.startScreenY - mover.trajectoryFloor;
-    const screenY = mover.startScreenY - arcT * totalArcHeight;
+    // Y at t=0 is trajectoryFloor. Y at t=0.5 is trajectoryCeiling (which is trajectoryFloor - arcHeight)
+    const screenY = mover.trajectoryFloor - arcT * mover.arcHeight;
 
     // Convert screen-space Y to world-space Y
     mover.y = state.cameraY + state.H - GROUND_MARGIN - screenY - BLOCK_H;
