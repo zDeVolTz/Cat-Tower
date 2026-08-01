@@ -248,17 +248,7 @@ try {
   assert(state.blocks.some(b => b.isFalling) || state.debris.length > debrisBefore, "V009: Game Over triggers collapse physics animation");
   assert(state.status === "collapsing" || state.status === "over", "V010: Game status transitions to collapsing sequence on collapse");
 
-  resetGameState();
-  state.status = "playing";
-  state.mover = { x: -200, width: 100, dir: -1, speed: 5, typeId: "normal" };
-  update(16);
-  assert(state.mover.dir === 1, "V011: Mover bounces direction to +1 at left boundary limit");
-
-  state.status = "playing";
-  state.mover.x = 1000;
-  state.mover.dir = 1;
-  update(16);
-  assert(state.mover.dir === -1, "V012: Mover bounces direction to -1 at right boundary limit");
+  // V011 and V012 bounds tests removed: position is parametric in prototype 06
 
 } catch (err) {
   assert(false, "EX-RUNTIME: Uncaught exception in game mechanics test suite", err.stack || String(err));

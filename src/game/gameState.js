@@ -8,6 +8,7 @@ import {
 } from "./config.js";
 import { PhysicsWorld } from "./physics/PhysicsWorld.js";
 import { Block } from "./physics/Block.js";
+import { ActiveCatSystem } from "./physics/ActiveCatSystem.js";
 
 /**
  * Calculates effective mass of a block based on cat type, golden status, and block width ratio.
@@ -326,33 +327,23 @@ export function spawnMover() {
 
   const type = BLOCK_TYPES[chosenTypeId] || BLOCK_TYPES.normal;
   const color = type.palette[state.blocks.length % type.palette.length];
-  const AIR_GAP = BLOCK_H * 3; // 3 blocks gap for overhead movement
-  const spawnY = getTopFloorY() + AIR_GAP;
-
-  // On desktop, spawn within central arcade lane bounds for focused gameplay
-  const limits = getMoverLimits();
-  const spawnX = fromLeft ? limits.spawnLeft : limits.spawnRight;
 
   state.mover = {
     kind: "block",
     typeId: chosenTypeId,
     isGolden,
-    x: spawnX,
+    x: 0,
     width: moverWidth,
-    y: spawnY,
+    y: 0,
     dir: fromLeft ? 1 : -1,
     speed,
     color,
     state: "moving",
     vy: 0,
-    // Bug fix: this was previously never set, so physics.js's handleDrop() always fell back
-    // to a flat type.weight for every real dropped block (only the permanent base block ever
-    // got the real width-scaled mass) — the "longer blocks are significantly heavier" design
-    // intent was dead for ~99% of actual gameplay, quietly weakening counter-stamping.
-    mass: calculateBlockMass(chosenTypeId, isGolden, moverWidth),
-    squishX: 1,
-    squishY: 1
+    mass: calculateBlockMass(chosenTypeId, isGolden, moverWidth)
   };
+
+  ActiveCatSystem.initMover(state.mover, state);
 }
 
 export function triggerShake(amount) {

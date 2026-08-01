@@ -45,7 +45,7 @@ export function initUI(canvasElement) {
 
   document.getElementById("startBtn").addEventListener("click", () => {
     AudioEngine.ensureAudio();
-    AudioEngine.playMusic();
+    // AudioEngine.playMusic(); // Disabled by default for Prototype 06
     if (musicBtn) musicBtn.textContent = AudioEngine.isMusicPlaying() ? "🎶" : "🎵";
     startPanel.classList.add("hidden");
     state.status = "playing";
@@ -55,9 +55,11 @@ export function initUI(canvasElement) {
 
   document.getElementById("restartBtn").addEventListener("click", () => {
     AudioEngine.ensureAudio();
+    /* 
     if (!AudioEngine.isMusicPlaying()) {
       AudioEngine.playMusic();
     }
+    */
     if (musicBtn) musicBtn.textContent = AudioEngine.isMusicPlaying() ? "🎶" : "🎵";
     overPanel.classList.add("hidden");
     state.status = "playing";

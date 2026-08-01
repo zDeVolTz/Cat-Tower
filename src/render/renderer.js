@@ -145,6 +145,27 @@ export function render() {
     ctx.restore();
   }
 
+  // 3.5 Render Unreachable Goal
+  if (state.status === "playing") {
+    ctx.save();
+    // Use the ACTIVE_CAT_ZONE_TOP (12% of H) minus an offset for the goal position
+    const goalY = state.H * 0.05; 
+    ctx.font = '800 32px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    
+    // Glowing effect
+    ctx.shadowColor = '#fff';
+    ctx.shadowBlur = 15;
+    ctx.fillStyle = '#fff';
+    
+    // Gentle floating animation based on performance.now()
+    const floatOffset = Math.sin(performance.now() * 0.002) * 5;
+    
+    ctx.fillText('✦', state.W / 2, goalY + floatOffset);
+    ctx.restore();
+  }
+
   // 4. Render Active Mover Block
   if (state.mover && state.status === "playing") {
     const moverY = state.H - GROUND_MARGIN - (state.mover.y - state.cameraY) - BLOCK_H;
