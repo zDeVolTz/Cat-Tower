@@ -1,9 +1,6 @@
 /**
  * Cat Tower Stack — Master Automated Test Suite Runner
- * Mocks browser environment and runs all 3 modular test suites:
- * 1. Game Mechanics & Logic (Independent of physics)
- * 2. Physics Engine Invariants & Safety Bounds
- * 3. Edge Cases & Module Integration
+ * Mocks browser environment and runs all modular test suites.
  */
 
 global.window = {
@@ -37,7 +34,8 @@ await import("./test_game_mechanics.js");
 await import("./test_physics_engine.js");
 await import("./test_jenga_physics.js");
 await import("./test_edge_cases_and_integration.js");
+await import("./test_active_cat_system.js");
 
 console.log("\n======================================================================");
-console.log("   🎉 ALL TEST SUITES COMPLETED WITH 100% SUCCESS!");
+console.log("   🎉 ALL TEST SUITES COMPLETED!");
 console.log("======================================================================\n");

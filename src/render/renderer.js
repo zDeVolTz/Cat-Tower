@@ -167,7 +167,7 @@ export function render() {
   }
 
   // 4. Render Active Mover Block
-  if (state.mover && state.status === "playing") {
+  if (state.mover && state.status === "playing" && state.mover.isVisible !== false) {
     const moverY = state.H - GROUND_MARGIN - (state.mover.y - state.cameraY) - BLOCK_H;
     drawCatBlock(ctx, state.mover, state.mover.x, moverY);
   }

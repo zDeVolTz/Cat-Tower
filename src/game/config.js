@@ -10,36 +10,54 @@ export const PERFECT_TOLERANCE_BASE = 10;
 export const GROUND_MARGIN = 60;       // px gap kept between the tower base and the very bottom of the screen
 export const CAMERA_TRAIL_FRACTION = 0.55; // fraction of screen height the tower can grow before the camera starts following
 
-// ─── Active Cat Trajectory — Gameplay Constants ─────────────────────────────
-// Source of truth for the airborne cat mechanic. All values are gameplay rules,
-// intentionally independent of camera presentation parameters.
-// Units: fractions are relative to viewport H; block-relative values use BLOCK_H.
+// ─── Active Cat Spatial Model — Gameplay Constants (Iteration 1) ────────────
+// Five explicitly separate concepts. Do not blend them:
+//
+//   1. TOWER EXCLUSION ZONE — the vertical region the tower can physically
+//      reach (world-space rule, worst-case tower height + safety margin).
+//   2. ACTIVE FLIGHT ZONE   — the screen-space band the cat's trajectory is
+//      confined to. Always sits entirely above the tower exclusion zone.
+//   3. VISIBLE GAMEPLAY ZONE — the horizontal screen-space region in which
+//      the cat is actually drawn. Narrower than the phantom travel range.
+//   4. PHANTOM TRAJECTORY  — the invisible portion of the same horizontal
+//      path, outside the visible gameplay zone, where the cat is already
+//      "moving" (so it enters at speed, never spawns instantly at an edge).
+//   5. CAMERA               — presentation only. It reads world-space tower
+//      geometry to decide what to render; it never defines gameplay bounds.
+//      No cat-trajectory or exclusion-zone math may depend on cameraY here.
+//
+// Units: fractions are relative to viewport H/W; block-relative values use BLOCK_H.
 export const ACTIVE_CAT_TRAJECTORY = {
-  // ── Screen margins (trajectory ceiling) ──
-  ZONE_TOP_RATIO:       0.08,   // fraction of H reserved above trajectory (notch/status bar)
+  // ── 1. TOWER EXCLUSION ZONE ──────────────────────────────────────────────
+  // Vertical clearance kept between the tower's current top and the flight
+  // zone's lower edge. Expressed in BLOCK_H multiples so it scales with the
+  // block grid. This is a gameplay rule about the tower, not about the cat.
+  CLEARANCE_BLOCKS:     1.0,    // min gap between tower top and flight-zone floor (1× BLOCK_H)
+
+  // ── 2. ACTIVE FLIGHT ZONE ────────────────────────────────────────────────
+  ZONE_TOP_RATIO:       0.08,   // fraction of H reserved above the flight zone (notch/status bar)
   ZONE_TOP_MIN_PX:      55,     // absolute minimum top margin in px
-
-  // ── Safe zone (gap between cat and tower) ──
-  // Clearance = gameplay gap + cat visual extent. Expressed in BLOCK_H multiples
-  // so it scales naturally with block size changes.
-  CLEARANCE_BLOCKS:     1.0,    // minimum gap between cat bottom and tower top (1× BLOCK_H = 46px)
-
-  // Cat visual extent below its center point (body/2 + ears overshoot)
-  CAT_VISUAL_EXTENT_PX: 30,     // ≈ (BLOCK_H + 14 ears) / 2
-
-  // ── Trajectory limits ──
-  MIN_ARC_HEIGHT_PX:    46,     // minimum vertical arc sweep (= 1 BLOCK_H)
-  MAX_FLOOR_RATIO:      0.40,   // trajectory floor never goes below 40% of screen
-
-  // ── Movement (k-system: values per frame at 60 fps) ──
+  CAT_VISUAL_EXTENT_PX: 30,     // cat's visual half-height (body/2 + ear overshoot), used as clearance padding
+  MIN_ARC_HEIGHT_PX:    46,     // minimum vertical arc sweep (= 1 BLOCK_H) — flight zone is never thinner than this
+  MAX_FLOOR_RATIO:      0.40,   // flight zone floor never goes below 40% of screen height, regardless of tower height
   PHASE_SPEED:          0.025,  // oscillation speed (rad per k-unit). Full cycle ≈ 4.2 s
 
-  // ── Horizontal bounds ──
-  OFFSCREEN_FRACTION:   0.15,   // how much of cat width peeks off-screen at turnaround edges
+  // ── 3. VISIBLE GAMEPLAY ZONE ─────────────────────────────────────────────
+  // Horizontal region (screen-space) in which the cat is actually rendered
+  // and interactable. Turnaround points sit inside this zone, inset from
+  // the true screen edge by OFFSCREEN_FRACTION so the cat doesn't clip.
+  OFFSCREEN_FRACTION:   0.15,   // how much of cat width may still peek at the visible-zone's own edges
+
+  // ── 4. PHANTOM TRAJECTORY ────────────────────────────────────────────────
+  // Extra horizontal travel, entirely outside the visible gameplay zone,
+  // that the cat's motion already covers before crossing into visibility.
+  // This is a distinct concept from the visible zone's own edge inset above:
+  // it's the invisible run-up, not a visible-but-clipped sliver.
+  PHANTOM_MARGIN_FRACTION: 0.6, // phantom travel distance, relative to mover width
 
   // ── Release / TAP physics (k-system units, same as SLOW_FALL_GRAVITY) ──
   RELEASE_HORIZONTAL_RETAIN: 0.4,  // preserve 40% of trajectory horizontal velocity
-  FALL_GRAVITY:              2.0,  // world-space downward accel after release (matches existing)
+  FALL_GRAVITY:              2.0   // world-space downward accel after release (matches existing)
 };
 
 // Level Config & Checkpoints (1 level = 10 floors)
