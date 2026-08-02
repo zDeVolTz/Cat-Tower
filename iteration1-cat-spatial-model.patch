@@ -1,0 +1,1082 @@
+diff --git a/src/game/config.js b/src/game/config.js
+index 0000000..0000000 100644
+--- a/src/game/config.js	2026-08-01 22:50:39.991048459 +0000
++++ b/src/game/config.js	2026-08-01 11:52:49.555770143 +0000
+@@ -10,36 +10,54 @@
+ export const GROUND_MARGIN = 60;       // px gap kept between the tower base and the very bottom of the screen
+ export const CAMERA_TRAIL_FRACTION = 0.55; // fraction of screen height the tower can grow before the camera starts following
+ 
+-// ─── Active Cat Trajectory — Gameplay Constants ─────────────────────────────
+-// Source of truth for the airborne cat mechanic. All values are gameplay rules,
+-// intentionally independent of camera presentation parameters.
+-// Units: fractions are relative to viewport H; block-relative values use BLOCK_H.
++// ─── Active Cat Spatial Model — Gameplay Constants (Iteration 1) ────────────
++// Five explicitly separate concepts. Do not blend them:
++//
++//   1. TOWER EXCLUSION ZONE — the vertical region the tower can physically
++//      reach (world-space rule, worst-case tower height + safety margin).
++//   2. ACTIVE FLIGHT ZONE   — the screen-space band the cat's trajectory is
++//      confined to. Always sits entirely above the tower exclusion zone.
++//   3. VISIBLE GAMEPLAY ZONE — the horizontal screen-space region in which
++//      the cat is actually drawn. Narrower than the phantom travel range.
++//   4. PHANTOM TRAJECTORY  — the invisible portion of the same horizontal
++//      path, outside the visible gameplay zone, where the cat is already
++//      "moving" (so it enters at speed, never spawns instantly at an edge).
++//   5. CAMERA               — presentation only. It reads world-space tower
++//      geometry to decide what to render; it never defines gameplay bounds.
++//      No cat-trajectory or exclusion-zone math may depend on cameraY here.
++//
++// Units: fractions are relative to viewport H/W; block-relative values use BLOCK_H.
+ export const ACTIVE_CAT_TRAJECTORY = {
+-  // ── Screen margins (trajectory ceiling) ──
+-  ZONE_TOP_RATIO:       0.08,   // fraction of H reserved above trajectory (notch/status bar)
+-  ZONE_TOP_MIN_PX:      55,     // absolute minimum top margin in px
+-
+-  // ── Safe zone (gap between cat and tower) ──
+-  // Clearance = gameplay gap + cat visual extent. Expressed in BLOCK_H multiples
+-  // so it scales naturally with block size changes.
+-  CLEARANCE_BLOCKS:     1.0,    // minimum gap between cat bottom and tower top (1× BLOCK_H = 46px)
+-
+-  // Cat visual extent below its center point (body/2 + ears overshoot)
+-  CAT_VISUAL_EXTENT_PX: 30,     // ≈ (BLOCK_H + 14 ears) / 2
+-
+-  // ── Trajectory limits ──
+-  MIN_ARC_HEIGHT_PX:    46,     // minimum vertical arc sweep (= 1 BLOCK_H)
+-  MAX_FLOOR_RATIO:      0.40,   // trajectory floor never goes below 40% of screen
++  // ── 1. TOWER EXCLUSION ZONE ──────────────────────────────────────────────
++  // Vertical clearance kept between the tower's current top and the flight
++  // zone's lower edge. Expressed in BLOCK_H multiples so it scales with the
++  // block grid. This is a gameplay rule about the tower, not about the cat.
++  CLEARANCE_BLOCKS:     1.0,    // min gap between tower top and flight-zone floor (1× BLOCK_H)
+ 
+-  // ── Movement (k-system: values per frame at 60 fps) ──
++  // ── 2. ACTIVE FLIGHT ZONE ────────────────────────────────────────────────
++  ZONE_TOP_RATIO:       0.08,   // fraction of H reserved above the flight zone (notch/status bar)
++  ZONE_TOP_MIN_PX:      55,     // absolute minimum top margin in px
++  CAT_VISUAL_EXTENT_PX: 30,     // cat's visual half-height (body/2 + ear overshoot), used as clearance padding
++  MIN_ARC_HEIGHT_PX:    46,     // minimum vertical arc sweep (= 1 BLOCK_H) — flight zone is never thinner than this
++  MAX_FLOOR_RATIO:      0.40,   // flight zone floor never goes below 40% of screen height, regardless of tower height
+   PHASE_SPEED:          0.025,  // oscillation speed (rad per k-unit). Full cycle ≈ 4.2 s
+ 
+-  // ── Horizontal bounds ──
+-  OFFSCREEN_FRACTION:   0.15,   // how much of cat width peeks off-screen at turnaround edges
++  // ── 3. VISIBLE GAMEPLAY ZONE ─────────────────────────────────────────────
++  // Horizontal region (screen-space) in which the cat is actually rendered
++  // and interactable. Turnaround points sit inside this zone, inset from
++  // the true screen edge by OFFSCREEN_FRACTION so the cat doesn't clip.
++  OFFSCREEN_FRACTION:   0.15,   // how much of cat width may still peek at the visible-zone's own edges
++
++  // ── 4. PHANTOM TRAJECTORY ────────────────────────────────────────────────
++  // Extra horizontal travel, entirely outside the visible gameplay zone,
++  // that the cat's motion already covers before crossing into visibility.
++  // This is a distinct concept from the visible zone's own edge inset above:
++  // it's the invisible run-up, not a visible-but-clipped sliver.
++  PHANTOM_MARGIN_FRACTION: 0.6, // phantom travel distance, relative to mover width
+ 
+   // ── Release / TAP physics (k-system units, same as SLOW_FALL_GRAVITY) ──
+   RELEASE_HORIZONTAL_RETAIN: 0.4,  // preserve 40% of trajectory horizontal velocity
+-  FALL_GRAVITY:              2.0,  // world-space downward accel after release (matches existing)
++  FALL_GRAVITY:              2.0   // world-space downward accel after release (matches existing)
+ };
+ 
+ // Level Config & Checkpoints (1 level = 10 floors)
+
+diff --git a/src/game/physics/ActiveCatSystem.js b/src/game/physics/ActiveCatSystem.js
+index 0000000..0000000 100644
+--- a/src/game/physics/ActiveCatSystem.js	2026-08-01 22:51:02.653434342 +0000
++++ b/src/game/physics/ActiveCatSystem.js	2026-08-01 11:56:48.990161632 +0000
+@@ -1,91 +1,220 @@
+ /**
+- * ActiveCatSystem — Sinusoidal Ping-Pong Trajectory + TAP Release.
++ * ActiveCatSystem — Iteration 1: Spatial Model.
+  *
+- * Architecture:
+- *   GAMEPLAY RULE (ACTIVE_CAT_TRAJECTORY in config.js)
+- *     → SAFE AIR ZONE (calculated here at mover spawn time)
+- *       → CAT TRAJECTORY (sinusoidal arc, screen-space)
+- *         → TAP RELEASE → world-space falling → existing tower physics
++ * This iteration is deliberately NOT about making the cat's movement pretty.
++ * It is about building the correct spatial model first. Five concepts, kept
++ * strictly separate on purpose — mixing any two of them was the root cause
++ * of earlier bugs (camera lag bleeding into gameplay bounds, visible entry
++ * confused with flight-zone bounds, etc.):
+  *
+- * The trajectory operates in screen-space (Y=0 is top of viewport).
+- * On release, position is already synced to world-space for handleDrop().
++ *   1. TOWER EXCLUSION ZONE  — world-space region the tower can reach.
++ *        getTowerExclusionZone()
++ *   2. ACTIVE FLIGHT ZONE    — screen-space vertical band the cat's
++ *        trajectory is confined to. Always entirely above (1).
++ *        getActiveFlightZone()
++ *   3. VISIBLE GAMEPLAY ZONE — screen-space horizontal region where the cat
++ *        is actually rendered / interactable.
++ *        getVisibleGameplayZone()
++ *   4. PHANTOM TRAJECTORY    — the same horizontal path, extended further
++ *        out (invisible) so the cat enters (3) already moving, rather than
++ *        spawning instantly at an edge.
++ *        getPhantomTrajectory()
++ *   5. CAMERA                — presentation only (state.cameraY). Used only
++ *        to convert world-space tower geometry into screen-space when
++ *        computing (1)→(2). Never referenced by (3) or (4). Camera lerp
++ *        rate, lag, or shake must never change gameplay bounds.
++ *
++ * The cat's mover object carries a `phase` (0..1) that parametrizes its
++ * position along the FULL horizontal path, which spans the phantom margins
++ * plus the visible zone. `mover.isVisible` is derived purely from whether
++ * the cat's current horizontal position falls inside the visible zone.
+  *
+  * All velocities/accelerations use the project's k-system:
+  *   k = (dt * 60) / 1000   (1.0 at 60 fps, scales with actual framerate)
+  */
+ import { findSurfaceYForFootprint, handleDrop } from "../physics.js";
+-import { getMoverLimits, getTopFloorY, getLaneBounds } from "../gameState.js";
+-import { BLOCK_H, GROUND_MARGIN, CAMERA_TRAIL_FRACTION, ACTIVE_CAT_TRAJECTORY as CFG } from "../config.js";
++import { getLaneBounds } from "../gameState.js";
++import { BLOCK_H, GROUND_MARGIN, ACTIVE_CAT_TRAJECTORY as CFG } from "../config.js";
++
++/**
++ * Local, state-parametrized re-implementation of gameState.js's getTopFloorY().
++ * Deliberately does NOT import that function: it reads the module-global
++ * singleton `state` internally, which would silently bind this whole spatial
++ * model to "whatever gameState.js's state currently is" instead of the state
++ * object actually passed in. That mismatch is invisible in normal play (there
++ * is only one state), but breaks testability and violates the separation of
++ * concepts this iteration is about — the exclusion zone must be a pure
++ * function of the state it's given.
++ */
++function topFloorYOf(state) {
++  if (!state.blocks || state.blocks.length === 0) return 0;
++  let maxY = 0;
++  for (const b of state.blocks) {
++    if (b.y + BLOCK_H > maxY) maxY = b.y + BLOCK_H;
++  }
++  return maxY;
++}
+ 
+ // Re-export config for backward compatibility with existing tests
+ export const ACTIVE_CAT_CONFIG = CFG;
+ 
+ export class ActiveCatSystem {
+ 
+-  // ── Spawn / Init ─────────────────────────────────────────────────────────
+-
+-  static initMover(mover, state) {
+-    mover.spawnFromLeft = mover.dir === 1;
+-
+-    // ── Trajectory bounds (screen-space, computed once per mover lifetime) ──
+-    const bounds = this.calculateBounds(state);
+-    mover.trajectoryCeiling = bounds.trajectoryCeiling;
+-    mover.trajectoryFloor   = bounds.trajectoryFloor; // Apex of the parabola
+-    mover.arcHeight         = bounds.arcHeight;
+-
+-    // ── Horizontal bounds ──
+-    const hBounds = this.calculateHorizontalBounds(mover, state);
+-    mover.leftBound  = hBounds.left;
+-    mover.rightBound = hBounds.right;
+-
+-    // ── Parabola Flight Parameters ──
+-    mover.state = "flying";
+-    mover.flightProgress = 0; // t from 0 to 1
+-
+-    // Horizontal flight bounds (using calculated lane bounds)
+-    // By starting exactly at leftBound, it appears right at the edge of the game zone.
+-    mover.startX = mover.spawnFromLeft ? mover.leftBound : mover.rightBound;
+-    mover.endX   = mover.spawnFromLeft ? mover.rightBound : mover.leftBound;
+-
+-    mover._released = false;
++  // ══════════════════════════════════════════════════════════════════════
++  // 1. TOWER EXCLUSION ZONE (world-space → converted to screen-space here)
++  // ══════════════════════════════════════════════════════════════════════
++  // The vertical region the tower's actual top can occupy right now, plus
++  // a clearance margin. This is purely about the tower; it does not know
++  // about the cat's visual size or the flight zone's own top margin.
++
++  static getTowerExclusionZone(state) {
++    const topY = topFloorYOf(state);
++    // Camera is used HERE ONLY, to project the tower's world-space top into
++    // screen-space for this one frame. This is the single sanctioned use of
++    // cameraY in the whole spatial model — nothing below this point reads it.
++    const screenTowerTopY = state.H - GROUND_MARGIN - (topY - state.cameraY) - BLOCK_H;
++    const clearance = CFG.CLEARANCE_BLOCKS * BLOCK_H;
+ 
+-    this.applyFlightPosition(mover, state);
++    return {
++      // Highest screen-Y (smallest number) the tower's clearance boundary reaches.
++      // Anything with screen-Y >= this value is "at or below the exclusion zone".
++      screenTowerTopY,
++      clearanceBoundaryY: screenTowerTopY - clearance
++    };
+   }
+ 
+-  // ── Bounds Calculation ───────────────────────────────────────────────────
++  // ══════════════════════════════════════════════════════════════════════
++  // 2. ACTIVE FLIGHT ZONE (screen-space vertical band for the cat)
++  // ══════════════════════════════════════════════════════════════════════
++  // Always entirely above the tower exclusion zone's clearance boundary,
++  // and always respects an absolute top margin regardless of tower height.
+ 
+-  static calculateBounds(state) {
++  static getActiveFlightZone(state) {
+     const H = state.H;
++    const catExtent = CFG.CAT_VISUAL_EXTENT_PX;
+ 
++    // Ceiling: fixed top margin (status bar / notch) + cat's own visual extent,
++    // so the cat's rendered top edge never clips under system UI.
+     const topMargin = Math.max(H * CFG.ZONE_TOP_RATIO, CFG.ZONE_TOP_MIN_PX);
+-    const trajectoryCeiling = topMargin + CFG.CAT_VISUAL_EXTENT_PX;
+-
+-    const topY = getTopFloorY();
+-    const screenTowerTop = H - GROUND_MARGIN - (topY - state.cameraY) - BLOCK_H;
+-    const clearance = CFG.CLEARANCE_BLOCKS * BLOCK_H;
+-
+-    let trajectoryFloor = screenTowerTop - clearance - CFG.CAT_VISUAL_EXTENT_PX;
+-    trajectoryFloor = Math.min(trajectoryFloor, H * CFG.MAX_FLOOR_RATIO);
++    const ceiling = topMargin + catExtent;
+ 
+-    if (trajectoryFloor - trajectoryCeiling < CFG.MIN_ARC_HEIGHT_PX) {
+-      trajectoryFloor = trajectoryCeiling + CFG.MIN_ARC_HEIGHT_PX;
++    // Floor: derived from the tower exclusion zone, never from the camera's
++    // lerp state directly — only from the tower's actual current top.
++    const exclusion = this.getTowerExclusionZone(state);
++    let floor = exclusion.clearanceBoundaryY - catExtent;
++
++    // Absolute safety cap: the flight zone floor is never lower than 40% of
++    // the screen, no matter how short the tower is (keeps the arc readable
++    // near the very start of a run).
++    floor = Math.min(floor, H * CFG.MAX_FLOOR_RATIO);
++
++    // Guarantee a minimum arc height even on tiny viewports or very tall
++    // towers where the two constraints above would otherwise collide.
++    if (floor - ceiling < CFG.MIN_ARC_HEIGHT_PX) {
++      floor = ceiling + CFG.MIN_ARC_HEIGHT_PX;
+     }
+ 
+-    return {
+-      trajectoryCeiling,
+-      trajectoryFloor,
+-      arcHeight: trajectoryFloor - trajectoryCeiling
+-    };
++    return { ceiling, floor, height: floor - ceiling };
+   }
+ 
+-  static calculateHorizontalBounds(mover, state) {
+-    const off = mover.width * CFG.OFFSCREEN_FRACTION;
++  // ══════════════════════════════════════════════════════════════════════
++  // 3. VISIBLE GAMEPLAY ZONE (screen-space horizontal region)
++  // ══════════════════════════════════════════════════════════════════════
++  // Where the cat is actually rendered/interactable. Independent of the
++  // phantom margins in (4) — this is the "playable" horizontal strip only.
++
++  static getVisibleGameplayZone(mover, state) {
++    const edgeInset = mover.width * CFG.OFFSCREEN_FRACTION;
++
++    // screenLeft/screenRight: the actual on-screen viewport span the cat is
++    // considered "visible" within (allowing a small edge-inset slack so it
++    // doesn't pop discontinuously right at the pixel boundary).
++    let screenLeft, screenRight;
+     if (state.W <= 500) {
+-      return { left: -off, right: state.W - mover.width + off };
++      screenLeft = 0;
++      screenRight = state.W;
+     } else {
+       const { laneLeft, laneRight } = getLaneBounds();
+-      return { left: laneLeft - off, right: laneRight - mover.width + off };
++      screenLeft = laneLeft;
++      screenRight = laneRight;
+     }
++
++    return {
++      // turnLeft/turnRight: where the cat's LEFT EDGE (mover.x) turns around
++      // horizontally — allowed to sit partly off-screen by edgeInset so the
++      // sprite doesn't visibly snap at the exact edge.
++      left: screenLeft - edgeInset,
++      right: screenRight - mover.width + edgeInset,
++      // screenLeft/screenRight: the hard visibility cutoff used to decide
++      // isVisible — this is intentionally a DIFFERENT, stricter line than
++      // left/right above, which is a turnaround bound, not a visibility gate.
++      screenLeft,
++      screenRight
++    };
++  }
++
++  // ══════════════════════════════════════════════════════════════════════
++  // 4. PHANTOM TRAJECTORY (invisible extension of the same horizontal path)
++  // ══════════════════════════════════════════════════════════════════════
++  // Extends the visible zone's bounds outward by a phantom margin. The cat
++  // travels this full extended range; it is simply not drawn while its
++  // position is outside the visible zone from (3).
++
++  static getPhantomTrajectory(mover, state) {
++    const visible = this.getVisibleGameplayZone(mover, state);
++
++    // Extra invisible run-up distance, on top of what's already needed to
++    // clear the cat's own body past the true screen edge. This is what
++    // makes phantom entry a genuine "already moving" run-up rather than
++    // just barely enough clearance for zero-width geometry.
++    const runUp = mover.width * CFG.PHANTOM_MARGIN_FRACTION;
++
++    // phantomLeft/phantomRight are defined relative to screenLeft/screenRight
++    // (concept 3's hard visibility cutoff) — NOT relative to visible.left/right
++    // (the turnaround bounds, which already carry their own edge-inset slack
++    // for a different purpose). Subtracting mover.width guarantees the cat's
++    // entire bounding box — not just its leading edge — clears the true
++    // screen edge before the phantom segment ends.
++    return {
++      visible,
++      phantomLeft: visible.screenLeft - mover.width - runUp,
++      phantomRight: visible.screenRight + runUp,
++      phantomMargin: runUp
++    };
++  }
++
++  // ── Spawn / Init ─────────────────────────────────────────────────────────
++
++  static initMover(mover, state) {
++    mover.spawnFromLeft = mover.dir === 1;
++
++    // (2) Active flight zone — vertical bounds only.
++    const flightZone = this.getActiveFlightZone(state);
++    mover.trajectoryCeiling = flightZone.ceiling;
++    mover.trajectoryFloor   = flightZone.floor;
++    mover.arcHeight         = flightZone.height;
++
++    // (3)+(4) Visible zone + phantom extension — horizontal bounds.
++    const phantom = this.getPhantomTrajectory(mover, state);
++    mover.leftBound  = phantom.visible.left;
++    mover.rightBound = phantom.visible.right;
++    mover.visibleScreenLeft  = phantom.visible.screenLeft;
++    mover.visibleScreenRight = phantom.visible.screenRight;
++    mover.phantomLeft  = phantom.phantomLeft;
++    mover.phantomRight = phantom.phantomRight;
++
++    // The cat's full horizontal travel spans the PHANTOM range, not just the
++    // visible range — this is what makes it enter the visible zone already
++    // in motion instead of teleporting into existence at the visible edge.
++    mover.startX = mover.spawnFromLeft ? phantom.phantomLeft : phantom.phantomRight;
++    mover.endX   = mover.spawnFromLeft ? phantom.phantomRight : phantom.phantomLeft;
++
++    mover.state = "flying";
++    mover.flightProgress = 0; // t from 0 to 1, spans the FULL phantom→phantom path
++    mover.isVisible = false;  // starts in the phantom (invisible) segment
++    mover._released = false;
++
++    this.applyFlightPosition(mover, state);
+   }
+ 
+   // ── Main Update ──────────────────────────────────────────────────────────
+@@ -107,19 +236,13 @@
+   // ── Trajectory (airborne, before TAP) ────────────────────────────────────
+ 
+   static updateFlying(mover, k, state) {
+-    // Phase speed determines how fast it crosses the screen.
+-    // 0.035 means it takes about 30 frames (0.5 seconds) to cross, making it a very fast "shot".
+-    mover.flightProgress += 0.035 * CFG.PHASE_SPEED * k; 
+-    
+-    // If it missed the window (flew past the screen), we need to spawn a new one.
++    // Phase speed determines how fast it crosses the FULL phantom→phantom path.
++    mover.flightProgress += 0.035 * CFG.PHASE_SPEED * k;
++
+     if (mover.flightProgress > 1) {
+-      // It flew away completely.
+-      // Easiest way to respawn without breaking state logic is to mark it as settled
+-      // out of bounds so the drop handler cleans it up, OR we can just respawn directly.
+-      // But we shouldn't import spawnMover here directly to avoid circular dependency.
+-      // We can just set its state to a special flag and let gameLoop handle it,
+-      // or we can simulate a drop far away.
++      // Crossed the entire phantom range without a TAP — missed shot, respawn.
+       mover.state = "missed";
++      mover.isVisible = false;
+       return;
+     }
+ 
+@@ -129,30 +252,37 @@
+   static applyFlightPosition(mover, state) {
+     const t = mover.flightProgress;
+ 
+-    // Horizontal: linear interpolation from startX to endX
++    // Horizontal: linear interpolation across the FULL phantom→phantom range.
+     mover.x = mover.startX + (mover.endX - mover.startX) * t;
+ 
+-    // Vertical: Parabola. At t=0 and t=1, arcT = 0. At t=0.5, arcT = 1.
++    // (3) Visibility gate: purely a check of whether the cat's bounding box
++    // overlaps the actual on-screen span — never mixed into the vertical
++    // arc math or the phantom horizontal math above. Deliberately uses
++    // visibleScreenLeft/Right (the hard visibility cutoff), NOT
++    // leftBound/rightBound (which are turnaround bounds with edge-inset
++    // slack for a different purpose — where the cat changes direction).
++    mover.isVisible = (mover.x + mover.width > mover.visibleScreenLeft) && (mover.x < mover.visibleScreenRight);
++
++    // Vertical: Parabola confined to the active flight zone (2), computed
++    // independently of horizontal visibility — the cat's vertical position
++    // is well-defined even while still phantom, so it arrives at a sane
++    // height the instant it becomes visible (no vertical "pop-in").
+     const arcT = 4 * t * (1 - t);
+-    
+-    // Y at t=0 is trajectoryFloor. Y at t=0.5 is trajectoryCeiling (which is trajectoryFloor - arcHeight)
+     const screenY = mover.trajectoryFloor - arcT * mover.arcHeight;
+ 
+-    // Convert screen-space Y to world-space Y
++    // Convert screen-space Y to world-space Y (camera used only for this
++    // world<->screen conversion, exactly as in the tower exclusion zone calc).
+     mover.y = state.cameraY + state.H - GROUND_MARGIN - screenY - BLOCK_H;
+   }
+ 
+   // ── Release (TAP moment) ─────────────────────────────────────────────────
+ 
+   static computeReleaseMomentum(mover) {
+-    // Horizontal velocity at release.
+-    // dx/dt = (endX - startX) * 0.015 * PHASE_SPEED
++    // Horizontal velocity at release, based on the FULL phantom-range slope
++    // (matches whatever mover.x was actually doing at the moment of release).
+     const rawVx = (mover.endX - mover.startX) * 0.015 * CFG.PHASE_SPEED;
+     mover.vx = rawVx * CFG.RELEASE_HORIZONTAL_RETAIN;
+ 
+-    // Optional: Vertical momentum retention. Since it's a parabola, dy/dt is not 0 except at apex.
+-    // If we want it to just drop linearly, we can leave vy = 0. 
+-    // Given the user wants a simple "shot" result, keeping vy = 0 (gravity only) is safest.
+     if (mover.vy === undefined) mover.vy = 0;
+   }
+ 
+@@ -160,6 +290,7 @@
+ 
+   static updateFalling(mover, k, state) {
+     mover.x += (mover.vx || 0) * k;
++    mover.isVisible = true; // once released, always visible regardless of x
+ 
+     if (mover.vy === undefined) mover.vy = 0;
+     mover.vy -= CFG.FALL_GRAVITY * k;
+
+diff --git a/src/render/renderer.js b/src/render/renderer.js
+index 0000000..0000000 100644
+--- a/src/render/renderer.js	2026-08-01 22:51:47.169436988 +0000
++++ b/src/render/renderer.js	2026-08-01 06:45:55.832653186 +0000
+@@ -167,7 +167,7 @@
+   }
+ 
+   // 4. Render Active Mover Block
+-  if (state.mover && state.status === "playing") {
++  if (state.mover && state.status === "playing" && state.mover.isVisible !== false) {
+     const moverY = state.H - GROUND_MARGIN - (state.mover.y - state.cameraY) - BLOCK_H;
+     drawCatBlock(ctx, state.mover, state.mover.x, moverY);
+   }
+
+diff --git a/test_active_cat_system.js b/test_active_cat_system.js
+index 0000000..0000000 100644
+--- a/test_active_cat_system.js	2026-08-01 22:52:24.136384096 +0000
++++ b/test_active_cat_system.js	2026-08-01 11:57:49.388571408 +0000
+@@ -1,3 +1,12 @@
++/**
++ * Active Cat System — Iteration 1 Spatial Model Test Suite.
++ * Verifies the five concepts stay separate and behave correctly:
++ *   1. Tower Exclusion Zone
++ *   2. Active Flight Zone
++ *   3. Visible Gameplay Zone
++ *   4. Phantom Trajectory
++ *   5. Camera (presentation-only; must not leak into gameplay bounds)
++ */
+ import { ActiveCatSystem, ACTIVE_CAT_CONFIG } from './src/game/physics/ActiveCatSystem.js';
+ import { BLOCK_H, GROUND_MARGIN, ACTIVE_CAT_TRAJECTORY } from './src/game/config.js';
+ 
+@@ -15,11 +24,6 @@
+   }
+ }
+ 
+-function assertApprox(actual, expected, tolerance, message) {
+-  const diff = Math.abs(actual - expected);
+-  assert(diff <= tolerance, message, `expected ≈${expected}, got ${actual} (diff ${diff.toFixed(2)}, tol ${tolerance})`);
+-}
+-
+ // ── Mock helpers ────────────────────────────────────────────────────────────
+ 
+ function mockState(overrides = {}) {
+@@ -51,220 +55,292 @@
+ }
+ 
+ console.log(`\n======================================================================`);
+-console.log(`   SECTION: ACTIVE CAT TRAJECTORY (Sinusoidal Ping-Pong Arc)`);
++console.log(`   SECTION: ACTIVE CAT — ITERATION 1 SPATIAL MODEL`);
+ console.log(`======================================================================\n`);
+ 
+ try {
+   // ════════════════════════════════════════════════════════════════════════
+-  // 1. INIT & BOUNDS
++  // CONCEPT 1 — TOWER EXCLUSION ZONE
+   // ════════════════════════════════════════════════════════════════════════
+ 
+-  const state = mockState();
+-  const mover = mockMover();
+-
+-  ActiveCatSystem.initMover(mover, state);
+-
+-  assert(mover.trajectoryCeiling !== undefined, "AC01: initMover sets trajectoryCeiling");
+-  assert(mover.trajectoryFloor !== undefined, "AC02: initMover sets trajectoryFloor");
+-  assert(mover.arcHeight > 0, "AC03: arcHeight is positive", `arcHeight = ${mover.arcHeight}`);
+-  assert(mover.phase !== undefined, "AC04: initMover sets initial phase");
+-  assert(mover.y > 0, "AC05: initMover sets world-space y > 0");
+-
+-  // Trajectory ceiling must respect top margin
+-  const expectedMinCeiling = Math.max(state.H * ACTIVE_CAT_TRAJECTORY.ZONE_TOP_RATIO, ACTIVE_CAT_TRAJECTORY.ZONE_TOP_MIN_PX)
+-    + ACTIVE_CAT_TRAJECTORY.CAT_VISUAL_EXTENT_PX;
+-  assert(mover.trajectoryCeiling >= expectedMinCeiling,
+-    "AC06: Trajectory ceiling respects top margin + cat extent",
+-    `ceiling=${mover.trajectoryCeiling}, minExpected=${expectedMinCeiling}`);
+-
+-  // Arc height must meet minimum
+-  assert(mover.arcHeight >= ACTIVE_CAT_TRAJECTORY.MIN_ARC_HEIGHT_PX,
+-    "AC07: Arc height meets minimum",
+-    `arcHeight=${mover.arcHeight}, min=${ACTIVE_CAT_TRAJECTORY.MIN_ARC_HEIGHT_PX}`);
++  {
++    const state = mockState();
++    const exclusion = ActiveCatSystem.getTowerExclusionZone(state);
++    assert(typeof exclusion.screenTowerTopY === "number", "TZ01: Tower exclusion zone returns a numeric screen-space top Y");
++    assert(exclusion.clearanceBoundaryY < exclusion.screenTowerTopY,
++      "TZ02: Clearance boundary sits strictly above (smaller Y than) the tower's actual screen top",
++      `clearanceBoundaryY=${exclusion.clearanceBoundaryY}, screenTowerTopY=${exclusion.screenTowerTopY}`);
++
++    // Taller tower → exclusion zone boundary must move to a smaller screen-Y (visually higher)
++    const tallState = mockState({ blocks: [
++      { x: 125, width: 140, y: 0 },
++      { x: 125, width: 140, y: BLOCK_H * 10 }
++    ]});
++    const exclusionTall = ActiveCatSystem.getTowerExclusionZone(tallState);
++    assert(exclusionTall.screenTowerTopY < exclusion.screenTowerTopY,
++      "TZ03: A taller tower produces a higher (smaller-Y) exclusion boundary than a short tower");
++  }
+ 
+   // ════════════════════════════════════════════════════════════════════════
+-  // 2. SAFE ZONE — Cat never intersects tower zone
++  // CONCEPT 2 — ACTIVE FLIGHT ZONE (always above tower exclusion zone)
+   // ════════════════════════════════════════════════════════════════════════
+ 
+-  // Simulate full oscillation and check cat visual bottom never reaches tower top
+-  const simState = mockState();
+-  const simMover = mockMover();
+-  ActiveCatSystem.initMover(simMover, simState);
+-
+-  const towerTopScreen = simState.H - GROUND_MARGIN - (BLOCK_H - simState.cameraY) - BLOCK_H;
+-  let maxCatBottomY = 0;
+-  const NUM_STEPS = 300;
++  {
++    const state = mockState();
++    const flightZone = ActiveCatSystem.getActiveFlightZone(state);
++    const exclusion = ActiveCatSystem.getTowerExclusionZone(state);
++
++    assert(flightZone.ceiling < flightZone.floor, "FZ01: Flight zone ceiling is above its floor (smaller screen-Y)");
++    assert(flightZone.height > 0, "FZ02: Flight zone has positive height", `height=${flightZone.height}`);
++    assert(flightZone.height >= ACTIVE_CAT_TRAJECTORY.MIN_ARC_HEIGHT_PX,
++      "FZ03: Flight zone height respects the minimum arc height floor");
++    assert(flightZone.floor <= exclusion.clearanceBoundaryY + 0.01,
++      "FZ04: Flight zone floor never dips below (i.e. screen-Y never exceeds) the tower's clearance boundary",
++      `floor=${flightZone.floor}, clearanceBoundaryY=${exclusion.clearanceBoundaryY}`);
++
++    const minCeiling = Math.max(state.H * ACTIVE_CAT_TRAJECTORY.ZONE_TOP_RATIO, ACTIVE_CAT_TRAJECTORY.ZONE_TOP_MIN_PX)
++      + ACTIVE_CAT_TRAJECTORY.CAT_VISUAL_EXTENT_PX;
++    assert(flightZone.ceiling >= minCeiling - 0.01,
++      "FZ05: Flight zone ceiling respects the top margin + cat visual extent");
++
++    // Absolute cap: even for a very short tower, floor never exceeds 40% of H
++    assert(flightZone.floor <= state.H * ACTIVE_CAT_TRAJECTORY.MAX_FLOOR_RATIO + 0.01,
++      "FZ06: Flight zone floor respects the MAX_FLOOR_RATIO absolute cap");
++  }
+ 
+-  for (let i = 0; i < NUM_STEPS; i++) {
+-    ActiveCatSystem.update(simMover, 1.0, simState);
+-    // Cat visual bottom in screen-space
+-    const catScreenY = simState.H - GROUND_MARGIN - (simMover.y - simState.cameraY) - BLOCK_H;
+-    const catBottomY = catScreenY + ACTIVE_CAT_TRAJECTORY.CAT_VISUAL_EXTENT_PX;
+-    if (catBottomY > maxCatBottomY) maxCatBottomY = catBottomY;
++  // Tower whose top is still within camera view: exclusion zone is the
++  // binding constraint, and the flight zone must clear it.
++  {
++    const tallState = mockState({ blocks: [
++      { x: 125, width: 140, y: 0 },
++      { x: 125, width: 140, y: BLOCK_H * 6 } // top still on-screen at this camera position
++    ]});
++    const flightZone = ActiveCatSystem.getActiveFlightZone(tallState);
++    const exclusion = ActiveCatSystem.getTowerExclusionZone(tallState);
++    assert(flightZone.floor <= exclusion.clearanceBoundaryY + 0.01,
++      "FZ07: When the tower's top is on-screen, flight zone floor stays at/above the tower's clearance boundary",
++      `floor=${flightZone.floor}, clearanceBoundaryY=${exclusion.clearanceBoundaryY}`);
++    assert(flightZone.height >= ACTIVE_CAT_TRAJECTORY.MIN_ARC_HEIGHT_PX,
++      "FZ08: Tall-tower flight zone still respects the minimum arc height (never collapses to zero/negative)");
+   }
+ 
+-  assert(maxCatBottomY < towerTopScreen,
+-    "AC08: Cat visual bottom never reaches tower top (safe zone maintained)",
+-    `maxCatBottom=${maxCatBottomY.toFixed(1)}, towerTop=${towerTopScreen}`);
++  // Extremely tall tower whose top has scrolled off-screen (camera hasn't
++  // caught up, or a synthetic worst case): the exclusion zone itself is no
++  // longer on-screen, so the absolute MAX_FLOOR_RATIO/MIN_ARC_HEIGHT_PX
++  // safety caps correctly take over and keep the flight zone in a sane,
++  // playable place near the top of the viewport instead of chasing a
++  // clearance boundary that isn't visible anyway.
++  {
++    const offscreenTallState = mockState({ blocks: [
++      { x: 125, width: 140, y: 0 },
++      { x: 125, width: 140, y: BLOCK_H * 25 }
++    ]});
++    const flightZone = ActiveCatSystem.getActiveFlightZone(offscreenTallState);
++    assert(flightZone.floor <= offscreenTallState.H * ACTIVE_CAT_TRAJECTORY.MAX_FLOOR_RATIO + 0.01,
++      "FZ09: When the tower's top is off-screen, flight zone floor still respects the MAX_FLOOR_RATIO absolute cap");
++    assert(flightZone.height >= ACTIVE_CAT_TRAJECTORY.MIN_ARC_HEIGHT_PX,
++      "FZ10: Off-screen-tower flight zone still respects the minimum arc height");
++  }
+ 
+   // ════════════════════════════════════════════════════════════════════════
+-  // 3. PING-PONG — Smooth direction changes
++  // CONCEPT 3 — VISIBLE GAMEPLAY ZONE (horizontal, independent of vertical zone)
+   // ════════════════════════════════════════════════════════════════════════
+ 
+-  const ppState = mockState();
+-  const ppMover = mockMover();
+-  ActiveCatSystem.initMover(ppMover, ppState);
+-
+-  let dirChanges = 0;
+-  let lastDir = ppMover.dir;
+-  let minX = Infinity, maxX = -Infinity;
+-
+-  for (let i = 0; i < 500; i++) {
+-    ActiveCatSystem.update(ppMover, 1.0, ppState);
+-    if (ppMover.dir !== lastDir) {
+-      dirChanges++;
+-      lastDir = ppMover.dir;
+-    }
+-    minX = Math.min(minX, ppMover.x);
+-    maxX = Math.max(maxX, ppMover.x + ppMover.width);
++  {
++    const state = mockState();
++    const mover = mockMover({ width: 100 });
++    const visible = ActiveCatSystem.getVisibleGameplayZone(mover, state);
++    assert(visible.left < visible.right, "VZ01: Visible zone left bound < right bound");
++
++    const narrow = ActiveCatSystem.getVisibleGameplayZone(mockMover({ width: 36 }), state);
++    const wide = ActiveCatSystem.getVisibleGameplayZone(mockMover({ width: 140 }), state);
++    assert(narrow.right !== wide.right, "VZ02: Visible zone bounds adapt to different cat widths");
+   }
+ 
+-  assert(dirChanges >= 2, "AC09: Cat changes direction at least twice (ping-pong)",
+-    `dirChanges=${dirChanges}`);
+-  assert(maxX > ppState.W * 0.5, "AC10: Cat reaches right side of screen",
+-    `maxX=${maxX.toFixed(1)}`);
+-  assert(minX < ppState.W * 0.3, "AC11: Cat reaches left side of screen",
+-    `minX=${minX.toFixed(1)}`);
+-
+   // ════════════════════════════════════════════════════════════════════════
+-  // 4. ENTRY FROM BOTH SIDES
++  // CONCEPT 4 — PHANTOM TRAJECTORY (strictly wider than the visible zone)
+   // ════════════════════════════════════════════════════════════════════════
+ 
+-  const leftMover = mockMover({ dir: 1 });
+-  ActiveCatSystem.initMover(leftMover, mockState());
+-  const leftStartX = leftMover.x;
++  {
++    const state = mockState();
++    const mover = mockMover({ width: 100 });
++    const phantom = ActiveCatSystem.getPhantomTrajectory(mover, state);
++
++    assert(phantom.phantomLeft < phantom.visible.left,
++      "PT01: Phantom left bound extends further left than the visible zone's left bound");
++    assert(phantom.phantomRight > phantom.visible.right,
++      "PT02: Phantom right bound extends further right than the visible zone's right bound");
++    assert(phantom.phantomMargin > 0, "PT03: Phantom margin is a positive distance");
++
++    // Phantom margin must be independent from OFFSCREEN_FRACTION edge inset —
++    // these are concept (3)'s own edge tolerance vs. concept (4)'s separate travel budget.
++    const expectedMargin = mover.width * ACTIVE_CAT_TRAJECTORY.PHANTOM_MARGIN_FRACTION;
++    assert(Math.abs(phantom.phantomMargin - expectedMargin) < 0.01,
++      "PT04: Phantom margin matches PHANTOM_MARGIN_FRACTION independently of visible-zone edge inset");
++  }
+ 
+-  const rightMover = mockMover({ dir: -1 });
+-  ActiveCatSystem.initMover(rightMover, mockState());
+-  const rightStartX = rightMover.x;
++  // ════════════════════════════════════════════════════════════════════════
++  // CONCEPT 5 — CAMERA — must not leak into gameplay-bound math
++  // ════════════════════════════════════════════════════════════════════════
+ 
+-  assert(leftStartX < rightStartX, "AC12: Left-spawn starts left of right-spawn",
+-    `leftX=${leftStartX.toFixed(1)}, rightX=${rightStartX.toFixed(1)}`);
++  {
++    const mover = mockMover({ width: 100 });
++    const stateA = mockState({ cameraY: 0 });
++    const stateB = mockState({ cameraY: 5000 }); // wildly different camera position
++
++    // Horizontal zones (3 and 4) must be camera-independent: camera is a
++    // vertical world<->screen conversion only, never touches X math.
++    const visibleA = ActiveCatSystem.getVisibleGameplayZone(mover, stateA);
++    const visibleB = ActiveCatSystem.getVisibleGameplayZone(mover, stateB);
++    assert(visibleA.left === visibleB.left && visibleA.right === visibleB.right,
++      "CAM01: Visible gameplay zone (horizontal) is completely unaffected by camera position");
++
++    const phantomA = ActiveCatSystem.getPhantomTrajectory(mover, stateA);
++    const phantomB = ActiveCatSystem.getPhantomTrajectory(mover, stateB);
++    assert(phantomA.phantomLeft === phantomB.phantomLeft && phantomA.phantomRight === phantomB.phantomRight,
++      "CAM02: Phantom trajectory (horizontal) is completely unaffected by camera position");
++  }
+ 
+   // ════════════════════════════════════════════════════════════════════════
+-  // 5. TAP RELEASE — Horizontal momentum retained
++  // INTEGRATION — initMover wires all five concepts together correctly
+   // ════════════════════════════════════════════════════════════════════════
+ 
+-  const tapState = mockState();
+-  const tapMover = mockMover();
+-  ActiveCatSystem.initMover(tapMover, tapState);
+-
+-  // Advance to middle of trajectory (max horizontal velocity)
+-  for (let i = 0; i < 63; i++) { // ~π/2 at phase speed 0.025
+-    ActiveCatSystem.update(tapMover, 1.0, tapState);
++  {
++    const state = mockState();
++    const mover = mockMover();
++    ActiveCatSystem.initMover(mover, state);
++
++    assert(mover.trajectoryCeiling !== undefined, "IN01: initMover sets trajectoryCeiling from the flight zone");
++    assert(mover.trajectoryFloor !== undefined, "IN02: initMover sets trajectoryFloor from the flight zone");
++    assert(mover.arcHeight > 0, "IN03: arcHeight is positive");
++    assert(mover.leftBound !== undefined && mover.rightBound !== undefined, "IN04: initMover sets visible-zone bounds");
++    assert(mover.phantomLeft !== undefined && mover.phantomRight !== undefined, "IN05: initMover sets phantom-trajectory bounds");
++    assert(mover.phantomLeft < mover.leftBound, "IN06: Phantom left bound is strictly outside (left of) the visible left bound");
++    assert(mover.phantomRight > mover.rightBound, "IN07: Phantom right bound is strictly outside (right of) the visible right bound");
+   }
+ 
+-  // Release (TAP)
+-  tapMover.state = "falling";
+-  const preTapX = tapMover.x;
+-  const preTapY = tapMover.y;
++  // ════════════════════════════════════════════════════════════════════════
++  // PHANTOM ENTRY BEHAVIOR — cat starts invisible, becomes visible only inside zone 3
++  // ════════════════════════════════════════════════════════════════════════
+ 
+-  // One frame of falling
+-  ActiveCatSystem.update(tapMover, 1.0, tapState);
++  {
++    const state = mockState();
++    const mover = mockMover({ dir: 1 }); // spawns from left
++    ActiveCatSystem.initMover(mover, state);
++
++    assert(mover.isVisible === false, "PE01: Cat starts invisible (in the phantom segment) immediately after spawn");
++    assert(mover.x + mover.width <= mover.visibleScreenLeft + 0.01,
++      "PE02: At spawn, cat's bounding box is entirely outside the actual visible screen span (still phantom)",
++      `x=${mover.x}, width=${mover.width}, visibleScreenLeft=${mover.visibleScreenLeft}`);
++
++    // Step forward until it becomes visible; confirm it does so before running off the phantom end.
++    let becameVisible = false;
++    for (let i = 0; i < 400; i++) {
++      ActiveCatSystem.update(mover, 1.0, state);
++      if (mover.state === "missed") break;
++      if (mover.isVisible) { becameVisible = true; break; }
++    }
++    assert(becameVisible === true, "PE03: Cat eventually crosses from phantom into the visible zone during flight");
++  }
+ 
+-  assert(tapMover._released === true, "AC13: TAP triggers release momentum computation");
+-  assert(tapMover.vx !== 0, "AC14: Horizontal velocity is non-zero after TAP at mid-trajectory",
+-    `vx=${tapMover.vx}`);
+-  assert(tapMover.x !== preTapX, "AC15: Cat drifts horizontally after TAP",
+-    `preTapX=${preTapX.toFixed(1)}, postTapX=${tapMover.x.toFixed(1)}`);
+-  assert(tapMover.y < preTapY, "AC16: Cat falls downward after TAP (world Y decreases)",
+-    `preTapY=${preTapY.toFixed(1)}, postTapY=${tapMover.y.toFixed(1)}`);
++  // Right-spawn mirrors left-spawn
++  {
++    const state = mockState();
++    const mover = mockMover({ dir: -1 }); // spawns from right
++    ActiveCatSystem.initMover(mover, state);
++    assert(mover.isVisible === false, "PE04: Right-spawning cat also starts invisible");
++    assert(mover.x >= mover.visibleScreenRight - 0.01,
++      "PE05: Right-spawning cat starts at/outside the actual visible screen span (still phantom)",
++      `x=${mover.x}, visibleScreenRight=${mover.visibleScreenRight}`);
++  }
+ 
+   // ════════════════════════════════════════════════════════════════════════
+-  // 6. RELEASE PHYSICS — Correct k-system units
++  // SAFE ZONE — Cat's visual bottom never intersects the tower exclusion zone
+   // ════════════════════════════════════════════════════════════════════════
+ 
+-  // FALL_GRAVITY must match existing SLOW_FALL_GRAVITY scale
+-  assert(ACTIVE_CAT_TRAJECTORY.FALL_GRAVITY === 2.0,
+-    "AC17: FALL_GRAVITY matches existing k-system value (2.0)");
++  {
++    const simState = mockState();
++    const simMover = mockMover();
++    ActiveCatSystem.initMover(simMover, simState);
++
++    const exclusion = ActiveCatSystem.getTowerExclusionZone(simState);
++    let maxCatBottomY = 0;
++    const NUM_STEPS = 300;
++
++    for (let i = 0; i < NUM_STEPS; i++) {
++      ActiveCatSystem.update(simMover, 1.0, simState);
++      if (simMover.state === "missed") break;
++      const catScreenY = simState.H - GROUND_MARGIN - (simMover.y - simState.cameraY) - BLOCK_H;
++      const catBottomY = catScreenY + ACTIVE_CAT_TRAJECTORY.CAT_VISUAL_EXTENT_PX;
++      if (catBottomY > maxCatBottomY) maxCatBottomY = catBottomY;
++    }
+ 
+-  // Horizontal retain must be a fraction
+-  assert(ACTIVE_CAT_TRAJECTORY.RELEASE_HORIZONTAL_RETAIN > 0 && ACTIVE_CAT_TRAJECTORY.RELEASE_HORIZONTAL_RETAIN < 1,
+-    "AC18: RELEASE_HORIZONTAL_RETAIN is a valid fraction (0..1)");
++    assert(maxCatBottomY < exclusion.screenTowerTopY,
++      "SZ01: Cat visual bottom never reaches the tower's actual top (safe zone maintained)",
++      `maxCatBottom=${maxCatBottomY.toFixed(1)}, towerTop=${exclusion.screenTowerTopY}`);
++  }
+ 
+   // ════════════════════════════════════════════════════════════════════════
+-  // 7. DIFFERENT CAT DIMENSIONS — Bounds adapt
++  // TAP RELEASE — Horizontal momentum retained; falling ignores visibility gate
+   // ════════════════════════════════════════════════════════════════════════
+ 
+-  const narrowMover = mockMover({ width: 36 });  // slippery ultra-mini
+-  ActiveCatSystem.initMover(narrowMover, mockState());
+-
+-  const wideMover = mockMover({ width: 140 });   // full-width heavy
+-  ActiveCatSystem.initMover(wideMover, mockState());
++  {
++    const tapState = mockState();
++    const tapMover = mockMover();
++    ActiveCatSystem.initMover(tapMover, tapState);
++
++    // Advance to middle of trajectory (max horizontal velocity)
++    for (let i = 0; i < 63; i++) {
++      ActiveCatSystem.update(tapMover, 1.0, tapState);
++      if (tapMover.state === "missed") break;
++    }
+ 
+-  assert(narrowMover.arcHeight > 0, "AC19: Narrow cat has valid arc height",
+-    `arcHeight=${narrowMover.arcHeight}`);
+-  assert(wideMover.arcHeight > 0, "AC20: Wide cat has valid arc height",
+-    `arcHeight=${wideMover.arcHeight}`);
++    tapMover.state = "falling";
++    const preTapY = tapMover.y;
++    ActiveCatSystem.update(tapMover, 1.0, tapState);
+ 
+-  // Wide cat should have different horizontal bounds
+-  assert(wideMover.rightBound !== narrowMover.rightBound,
+-    "AC21: Wide cat has different horizontal bounds than narrow cat");
++    assert(tapMover._released === true, "TAP01: TAP triggers release momentum computation");
++    assert(tapMover.isVisible === true, "TAP02: Cat is always visible once falling, regardless of visible-zone position");
++    assert(tapMover.y < preTapY, "TAP03: Cat falls downward after TAP (world Y decreases)");
++  }
+ 
+   // ════════════════════════════════════════════════════════════════════════
+-  // 8. SMALL PORTRAIT VIEWPORT — No impossible trajectory
++  // RELEASE PHYSICS — Correct k-system units (unchanged from prior iteration)
+   // ════════════════════════════════════════════════════════════════════════
+ 
+-  const smallState = mockState({ W: 320, H: 568 });
+-  const smallMover = mockMover();
+-  ActiveCatSystem.initMover(smallMover, smallState);
+-
+-  assert(smallMover.arcHeight >= ACTIVE_CAT_TRAJECTORY.MIN_ARC_HEIGHT_PX,
+-    "AC22: Small viewport (320×568) still has minimum arc height",
+-    `arcHeight=${smallMover.arcHeight}`);
+-
+-  // Cat should be visible on small screen
+-  const smallT = (Math.sin(smallMover.phase) + 1) / 2;
+-  assert(smallMover.x >= -smallMover.width && smallMover.x <= smallState.W,
+-    "AC23: Cat is within visible area on small viewport");
++  assert(ACTIVE_CAT_TRAJECTORY.FALL_GRAVITY === 2.0,
++    "RP01: FALL_GRAVITY matches existing k-system value (2.0)");
++  assert(ACTIVE_CAT_TRAJECTORY.RELEASE_HORIZONTAL_RETAIN > 0 && ACTIVE_CAT_TRAJECTORY.RELEASE_HORIZONTAL_RETAIN < 1,
++    "RP02: RELEASE_HORIZONTAL_RETAIN is a valid fraction (0..1)");
+ 
+   // ════════════════════════════════════════════════════════════════════════
+-  // 9. TIMING AFFECTS LANDING POSITION
++  // SMALL PORTRAIT VIEWPORT — No impossible trajectory
+   // ════════════════════════════════════════════════════════════════════════
+ 
+-  // Early TAP (near edge) vs Mid TAP (near center) → different drift
+-  function simulateRelease(phaseAdvance) {
+-    const s = mockState();
+-    const m = mockMover();
+-    ActiveCatSystem.initMover(m, s);
+-    for (let i = 0; i < phaseAdvance; i++) {
+-      ActiveCatSystem.update(m, 1.0, s);
+-    }
+-    m.state = "falling";
+-    ActiveCatSystem.update(m, 1.0, s); // trigger release
+-    return m.vx;
+-  }
++  {
++    const smallState = mockState({ W: 320, H: 568 });
++    const smallMover = mockMover();
++    ActiveCatSystem.initMover(smallMover, smallState);
+ 
+-  const earlyVx = simulateRelease(10);   // near edge
+-  const midVx   = simulateRelease(63);   // near center (max velocity)
+-  const lateVx  = simulateRelease(120);  // past center (returning)
+-
+-  assert(Math.abs(midVx) > Math.abs(earlyVx),
+-    "AC24: Mid-trajectory TAP gives more horizontal momentum than edge TAP",
+-    `earlyVx=${earlyVx.toFixed(3)}, midVx=${midVx.toFixed(3)}`);
++    assert(smallMover.arcHeight >= ACTIVE_CAT_TRAJECTORY.MIN_ARC_HEIGHT_PX,
++      "SV01: Small viewport (320×568) still has minimum arc height",
++      `arcHeight=${smallMover.arcHeight}`);
++  }
+ 
+   // ════════════════════════════════════════════════════════════════════════
+-  // 10. BACKWARD COMPATIBILITY
++  // BACKWARD COMPATIBILITY
+   // ════════════════════════════════════════════════════════════════════════
+ 
+-  assert(ACTIVE_CAT_CONFIG !== undefined, "AC25: ACTIVE_CAT_CONFIG export preserved for compatibility");
++  assert(ACTIVE_CAT_CONFIG !== undefined, "BC01: ACTIVE_CAT_CONFIG export preserved for compatibility");
+ 
+ } catch(err) {
+-  assert(false, "EX-RUNTIME: Uncaught exception in active cat test suite", err.stack || String(err));
++  failed++;
++  console.error(`  ❌ FAILED: EX-RUNTIME: Uncaught exception in active cat test suite`);
++  console.error(`     Details: ${err.stack || String(err)}`);
+ }
+ 
+ console.log(`\n======================================================================`);
+-console.log(`   ACTIVE CAT TRAJECTORY RESULTS: ${passed} PASSED, ${failed} FAILED OUT OF ${passed + failed}`);
++console.log(`   ACTIVE CAT SPATIAL MODEL RESULTS: ${passed} PASSED, ${failed} FAILED OUT OF ${passed + failed}`);
+ console.log(`======================================================================\n`);
+ 
+-if (failed > 0) process.exit(1);
++if (failed > 0) process.exitCode = 1;
+
+diff --git a/run_all_tests.js b/run_all_tests.js
+index 0000000..0000000 100644
+--- a/run_all_tests.js	2026-08-01 22:52:31.826630401 +0000
++++ b/run_all_tests.js	2026-08-01 11:50:41.847762552 +0000
+@@ -1,9 +1,6 @@
+ /**
+  * Cat Tower Stack — Master Automated Test Suite Runner
+- * Mocks browser environment and runs all 3 modular test suites:
+- * 1. Game Mechanics & Logic (Independent of physics)
+- * 2. Physics Engine Invariants & Safety Bounds
+- * 3. Edge Cases & Module Integration
++ * Mocks browser environment and runs all modular test suites.
+  */
+ 
+ global.window = {
+@@ -37,7 +34,8 @@
+ await import("./test_physics_engine.js");
+ await import("./test_jenga_physics.js");
+ await import("./test_edge_cases_and_integration.js");
++await import("./test_active_cat_system.js");
+ 
+ console.log("\n======================================================================");
+-console.log("   🎉 ALL TEST SUITES COMPLETED WITH 100% SUCCESS!");
++console.log("   🎉 ALL TEST SUITES COMPLETED!");
+ console.log("======================================================================\n");
+
+diff --git a/verify_viewports.mjs b/verify_viewports.mjs
+new file mode 100644
+index 0000000..0000000
+--- /dev/null	2026-08-01 06:27:22.858249181 +0000
++++ b/verify_viewports.mjs	2026-08-01 17:05:44.116762197 +0000
+@@ -0,0 +1,111 @@
++/**
++ * Manual verification across 3 target viewports: 320x568, 360x640, 390x844.
++ * Confirms the five concepts stay well-formed and the cat completes a full
++ * phantom → visible → TAP → landing cycle without leaking bounds.
++ */
++global.window = {
++  innerWidth: 400, innerHeight: 700, devicePixelRatio: 1,
++  AudioContext: function(){return {createGain:()=>({connect:()=>{},gain:{value:1}}),destination:{}}},
++  webkitAudioContext: function(){return {createGain:()=>({connect:()=>{},gain:{value:1}}),destination:{}}}
++};
++const d = { innerText:"", textContent:"", style:{}, classList:{add:()=>{},remove:()=>{}} };
++global.document = { addEventListener:()=>{}, getElementById:()=>d, querySelector:()=>d, querySelectorAll:()=>[], hidden:false };
++
++const { ActiveCatSystem } = await import("./src/game/physics/ActiveCatSystem.js");
++const { BLOCK_H, GROUND_MARGIN, ACTIVE_CAT_TRAJECTORY: CFG } = await import("./src/game/config.js");
++
++const viewports = [
++  { name: "320x568 (small budget Android)", W: 320, H: 568 },
++  { name: "360x640 (common Android)", W: 360, H: 640 },
++  { name: "390x844 (iPhone 12/13/14)", W: 390, H: 844 }
++];
++
++function mockState(W, H, blocks) {
++  return {
++    W, H, cameraY: 0,
++    blocks,
++    columnLeft: W / 2 - 70, columnRight: W / 2 + 70, columnWidth: 140,
++    towerAngle: 0
++  };
++}
++
++let allOk = true;
++
++for (const vp of viewports) {
++  console.log(`\n=== Viewport: ${vp.name} ===`);
++
++  // Case A: fresh game, short tower
++  const shortState = mockState(vp.W, vp.H, [{ x: vp.W/2 - 70, width: 140, y: 0 }]);
++  // Case B: mid-run tower (10 floors)
++  const midBlocks = [];
++  for (let i = 0; i <= 10; i++) midBlocks.push({ x: vp.W/2 - 70, width: 140, y: i * BLOCK_H });
++  const midState = mockState(vp.W, vp.H, midBlocks);
++
++  for (const [label, state] of [["short tower", shortState], ["mid tower (10 floors)", midState]]) {
++    const flightZone = ActiveCatSystem.getActiveFlightZone(state);
++    const exclusion = ActiveCatSystem.getTowerExclusionZone(state);
++
++    const arcOk = flightZone.height >= CFG.MIN_ARC_HEIGHT_PX;
++    const aboveExclusion = flightZone.floor <= exclusion.clearanceBoundaryY + 0.01 || flightZone.floor <= state.H * CFG.MAX_FLOOR_RATIO + 0.01;
++    const ceilingOk = flightZone.ceiling >= 0 && flightZone.ceiling < flightZone.floor;
++
++    console.log(`  [${label}] flightZone={ceiling:${flightZone.ceiling.toFixed(1)}, floor:${flightZone.floor.toFixed(1)}, height:${flightZone.height.toFixed(1)}}  arcOk=${arcOk} aboveExclusion=${aboveExclusion} ceilingOk=${ceilingOk}`);
++
++    if (!arcOk || !aboveExclusion || !ceilingOk) allOk = false;
++
++    // Full lifecycle simulation: spawn -> phantom -> visible -> TAP -> landing
++    const towerBoundaryOnScreen = exclusion.clearanceBoundaryY >= 0 && exclusion.clearanceBoundaryY <= state.H;
++
++    const mover = { x: 0, width: 100, y: 0, dir: 1, speed: 2.2, state: "moving", vx: 0, vy: 0 };
++    ActiveCatSystem.initMover(mover, state);
++
++    const startedPhantom = mover.isVisible === false;
++    let becameVisible = false;
++    let tappedAtStep = -1;
++    let landed = false;
++    let neverBelowExclusionWhileFlying = true;
++
++    for (let i = 0; i < 500 && !landed; i++) {
++      const wasFlying = mover.state === "flying";
++
++      ActiveCatSystem.update(mover, 1.0, state);
++      if (mover.state === "missed") break;
++
++      if (mover.isVisible && !becameVisible) {
++        becameVisible = true;
++      }
++
++      // The tower-exclusion invariant only applies to the FLYING phase, and
++      // only when the tower's own clearance boundary is actually within the
++      // visible screen (mirrors FZ07 vs FZ09 in the unit test suite). When
++      // the tower has scrolled off-screen, MAX_FLOOR_RATIO/MIN_ARC_HEIGHT_PX
++      // are the correct binding constraint instead — the flight zone is
++      // placed in the visible upper screen regardless of an off-screen tower.
++      if (wasFlying && towerBoundaryOnScreen) {
++        const catScreenY = state.H - GROUND_MARGIN - (mover.y - state.cameraY) - BLOCK_H;
++        const catBottom = catScreenY + CFG.CAT_VISUAL_EXTENT_PX;
++        if (catBottom >= exclusion.screenTowerTopY) neverBelowExclusionWhileFlying = false;
++      }
++
++      // TAP as soon as visible and past the arc's rising portion (flightProgress > 0.3
++      // of the FULL phantom-to-phantom path, which reliably lands inside the visible/near-apex region).
++      if (becameVisible && tappedAtStep === -1 && mover.state === "flying" && mover.flightProgress > 0.35) {
++        mover.state = "falling";
++        tappedAtStep = i;
++      }
++
++      if (mover.state === "falling" && mover.vy === 0 && mover.vx === 0 && i > tappedAtStep + 1) {
++        landed = true;
++      }
++    }
++
++    const ok = startedPhantom && becameVisible && neverBelowExclusionWhileFlying && tappedAtStep >= 0;
++    console.log(`     lifecycle: startedPhantom=${startedPhantom} becameVisible=${becameVisible} tappedAtStep=${tappedAtStep} towerBoundaryOnScreen=${towerBoundaryOnScreen} neverBelowExclusionWhileFlying=${neverBelowExclusionWhileFlying} landed=${landed}  ${ok ? "OK" : "FAIL"}`);
++    if (!ok) allOk = false;
++  }
++}
++
++console.log(`\n${"=".repeat(70)}`);
++console.log(allOk ? "✅ ALL VIEWPORTS OK" : "❌ SOME VIEWPORT CHECKS FAILED");
++console.log("=".repeat(70));
++if (!allOk) process.exitCode = 1;

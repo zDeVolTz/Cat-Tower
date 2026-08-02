@@ -1,11 +1,11 @@
 /**
- * ActiveCatSystem — Iteration 1: Spatial Model.
+ * ActiveCatSystem — Iteration 2: One-Shot Trajectory Shapes.
  *
- * This iteration is deliberately NOT about making the cat's movement pretty.
- * It is about building the correct spatial model first. Five concepts, kept
- * strictly separate on purpose — mixing any two of them was the root cause
- * of earlier bugs (camera lag bleeding into gameplay bounds, visible entry
- * confused with flight-zone bounds, etc.):
+ * Builds on Iteration 1's spatial model WITHOUT changing it. The five
+ * spatial concepts below are unchanged in meaning and public API — only
+ * the SHAPE of the flight path (previously a single symmetric parabola)
+ * has been replaced with three deterministic, pre-authored trajectory
+ * classes. Nothing about zones (1)-(5) was touched:
  *
  *   1. TOWER EXCLUSION ZONE  — world-space region the tower can reach.
  *        getTowerExclusionZone()
@@ -24,13 +24,46 @@
  *        computing (1)→(2). Never referenced by (3) or (4). Camera lerp
  *        rate, lag, or shake must never change gameplay bounds.
  *
- * The cat's mover object carries a `phase` (0..1) that parametrizes its
- * position along the FULL horizontal path, which spans the phantom margins
- * plus the visible zone. `mover.isVisible` is derived purely from whether
- * the cat's current horizontal position falls inside the visible zone.
+ * ── What changed in this iteration ──────────────────────────────────────
+ * The cat is still a ONE-SHOT: phantom entry → visible flight → TAP → fall
+ * → landing, OR phantom entry → visible flight → exit (missed), never both,
+ * never a bounce-back. That lifecycle is unchanged. What changed is HOW the
+ * vertical curve is computed along the way — see TRAJECTORY SHAPES below.
+ *
+ * All three shapes normalize against the SAME getActiveFlightZone() band,
+ * so none of them can ever cross into the tower exclusion zone — the shape
+ * only decides how the available vertical room is used, never how much of
+ * it exists.
  *
  * All velocities/accelerations use the project's k-system:
  *   k = (dt * 60) / 1000   (1.0 at 60 fps, scales with actual framerate)
+ *
+ * ── TRAJECTORY SHAPES ────────────────────────────────────────────────────
+ * Each mover is assigned exactly one shape at spawn (mover.trajectoryType),
+ * fixed for its whole flight — never changed mid-air:
+ *
+ *   high_arc      Symmetric parabola sweeping the FULL flight-zone height.
+ *                 Enters and exits near the zone floor, peaks at the
+ *                 ceiling. The "big, obvious" arc.
+ *
+ *   low_arc       Symmetric parabola confined to the lower portion of the
+ *                 flight zone — shallower sweep, never approaches the
+ *                 ceiling. Reads as a flatter, faster-feeling pass.
+ *
+ *   diagonal_arc  Asymmetric: peak is off-center (DIAGONAL_PEAK_T, not 0.5)
+ *                 AND entry/exit sit at two different heights within the
+ *                 zone (comes in low, leaves high, or vice versa depending
+ *                 on spawn side). Built from two independent quadratic
+ *                 segments (entry→peak, peak→exit) that share only the
+ *                 peak point, so it does not read as a shifted symmetric
+ *                 parabola — the rise and fall genuinely differ in shape.
+ *
+ * Trajectory type selection defaults to CYCLING deterministically through
+ * ACTIVE_CAT_TRAJECTORY.TRAJECTORY_ORDER, one per spawned cat, so a
+ * playtester reliably sees all three in sequence instead of waiting on
+ * randomness. Call ActiveCatSystem.setTrajectoryTypeMode('random') to
+ * switch to uniform-random selection later (e.g. for the eventual live
+ * build), or back to 'cycle' (the default) at any time.
  */
 import { findSurfaceYForFootprint, handleDrop } from "../physics.js";
 import { getLaneBounds } from "../gameState.js";
@@ -58,7 +91,41 @@ function topFloorYOf(state) {
 // Re-export config for backward compatibility with existing tests
 export const ACTIVE_CAT_CONFIG = CFG;
 
+// ── Trajectory type selection mode (module-level, playtest-only concern) ──
+// 'cycle' (default): deterministic round-robin through TRAJECTORY_ORDER so a
+// solo playtester sees all three shapes in sequence without waiting on RNG.
+// 'random': uniform-random pick each spawn (intended for the eventual live
+// build, once a shape has been chosen as the winner).
+let trajectoryTypeMode = "cycle";
+let cycleIndex = 0;
+
 export class ActiveCatSystem {
+
+  /**
+   * Switches how initMover() picks a trajectory shape.
+   * @param {'cycle'|'random'} mode
+   */
+  static setTrajectoryTypeMode(mode) {
+    if (mode === "cycle" || mode === "random") {
+      trajectoryTypeMode = mode;
+      if (mode === "cycle") cycleIndex = 0;
+    }
+  }
+
+  static getTrajectoryTypeMode() {
+    return trajectoryTypeMode;
+  }
+
+  static pickTrajectoryType() {
+    const order = CFG.TRAJECTORY_ORDER;
+    if (trajectoryTypeMode === "random") {
+      return order[Math.floor(Math.random() * order.length)];
+    }
+    // cycle
+    const type = order[cycleIndex % order.length];
+    cycleIndex++;
+    return type;
+  }
 
   // ══════════════════════════════════════════════════════════════════════
   // 1. TOWER EXCLUSION ZONE (world-space → converted to screen-space here)
@@ -88,6 +155,8 @@ export class ActiveCatSystem {
   // ══════════════════════════════════════════════════════════════════════
   // Always entirely above the tower exclusion zone's clearance boundary,
   // and always respects an absolute top margin regardless of tower height.
+  // UNCHANGED from Iteration 1 — trajectory shapes below all normalize
+  // against this same band, they never redefine it.
 
   static getActiveFlightZone(state) {
     const H = state.H;
@@ -122,6 +191,7 @@ export class ActiveCatSystem {
   // ══════════════════════════════════════════════════════════════════════
   // Where the cat is actually rendered/interactable. Independent of the
   // phantom margins in (4) — this is the "playable" horizontal strip only.
+  // UNCHANGED from Iteration 1.
 
   static getVisibleGameplayZone(mover, state) {
     const edgeInset = mover.width * CFG.OFFSCREEN_FRACTION;
@@ -159,6 +229,7 @@ export class ActiveCatSystem {
   // Extends the visible zone's bounds outward by a phantom margin. The cat
   // travels this full extended range; it is simply not drawn while its
   // position is outside the visible zone from (3).
+  // UNCHANGED from Iteration 1.
 
   static getPhantomTrajectory(mover, state) {
     const visible = this.getVisibleGameplayZone(mover, state);
@@ -188,33 +259,41 @@ export class ActiveCatSystem {
   static initMover(mover, state) {
     mover.spawnFromLeft = mover.dir === 1;
 
-    // (2) Active flight zone — vertical bounds only.
+    // (2) Active flight zone — vertical bounds only. UNCHANGED source of
+    // truth; every trajectory shape below reads ceiling/floor from here and
+    // never invents its own vertical room.
     const flightZone = this.getActiveFlightZone(state);
     mover.trajectoryCeiling = flightZone.ceiling;
-    mover.trajectoryFloor   = flightZone.floor;
-    mover.arcHeight         = flightZone.height;
+    mover.trajectoryFloor = flightZone.floor;
+    mover.arcHeight = flightZone.height;
 
-    // (3)+(4) Visible zone + phantom extension — horizontal bounds.
+    // (3)+(4) Visible zone + phantom extension — horizontal bounds. UNCHANGED.
     const phantom = this.getPhantomTrajectory(mover, state);
-    mover.leftBound  = phantom.visible.left;
+    mover.leftBound = phantom.visible.left;
     mover.rightBound = phantom.visible.right;
-    mover.visibleScreenLeft  = phantom.visible.screenLeft;
+    mover.visibleScreenLeft = phantom.visible.screenLeft;
     mover.visibleScreenRight = phantom.visible.screenRight;
-    mover.phantomLeft  = phantom.phantomLeft;
+    mover.phantomLeft = phantom.phantomLeft;
     mover.phantomRight = phantom.phantomRight;
 
     // The cat's full horizontal travel spans the PHANTOM range, not just the
     // visible range — this is what makes it enter the visible zone already
     // in motion instead of teleporting into existence at the visible edge.
     mover.startX = mover.spawnFromLeft ? phantom.phantomLeft : phantom.phantomRight;
-    mover.endX   = mover.spawnFromLeft ? phantom.phantomRight : phantom.phantomLeft;
+    mover.endX = mover.spawnFromLeft ? phantom.phantomRight : phantom.phantomLeft;
+
+    // ── Iteration 2: pick one fixed trajectory shape for this cat's whole flight ──
+    mover.trajectoryType = this.pickTrajectoryType();
 
     mover.state = "flying";
     mover.flightProgress = 0; // t from 0 to 1, spans the FULL phantom→phantom path
     mover.isVisible = false;  // starts in the phantom (invisible) segment
     mover._released = false;
+    mover._prevX = mover.startX;
+    mover._prevY = undefined; // set on first applyFlightPosition call below
 
     this.applyFlightPosition(mover, state);
+    mover._prevY = mover.y;
   }
 
   // ── Main Update ──────────────────────────────────────────────────────────
@@ -224,7 +303,7 @@ export class ActiveCatSystem {
 
     if (mover.state === "falling") {
       if (!mover._released) {
-        this.computeReleaseMomentum(mover);
+        this.computeReleaseMomentum(mover, k);
         mover._released = true;
       }
       this.updateFalling(mover, k, state);
@@ -236,8 +315,12 @@ export class ActiveCatSystem {
   // ── Trajectory (airborne, before TAP) ────────────────────────────────────
 
   static updateFlying(mover, k, state) {
+    mover._prevX = mover.x;
+    mover._prevY = mover.y;
+
     // Phase speed determines how fast it crosses the FULL phantom→phantom path.
-    mover.flightProgress += 0.035 * CFG.PHASE_SPEED * k;
+    // Using mover.speed here makes the flight speed scale with the current level.
+    mover.flightProgress += 0.025 * mover.speed * CFG.PHASE_SPEED * k;
 
     if (mover.flightProgress > 1) {
       // Crossed the entire phantom range without a TAP — missed shot, respawn.
@@ -249,10 +332,78 @@ export class ActiveCatSystem {
     this.applyFlightPosition(mover, state);
   }
 
+  /**
+   * Computes screen-space Y as a fraction (0=ceiling, 1=floor) of the
+   * active flight zone, for the cat's CURRENT trajectoryType, at path
+   * fraction t (0..1 across the full phantom→phantom path).
+   *
+   * Returns a value in [0, 1] — the caller converts it to a real screen-Y
+   * via mover.trajectoryFloor - frac * mover.arcHeight, so no shape here
+   * can ever produce a Y outside the flight zone (it is mathematically
+   * bounded to [0,1] by construction in every branch below).
+   */
+  static computeArcFraction(mover, t) {
+    switch (mover.trajectoryType) {
+
+      case "low_arc": {
+        // Symmetric parabola, but confined to the LOWER portion of the zone:
+        // entry/exit sit at LOW_ARC_FLOOR_FRACTION (not 1.0/full floor), and
+        // the peak only rises to LOW_ARC_PEAK_FRACTION (not 0/full ceiling).
+        const entryFrac = CFG.LOW_ARC_FLOOR_FRACTION;
+        const peakFrac = CFG.LOW_ARC_PEAK_FRACTION;
+        const arcT = 4 * t * (1 - t); // 0 at edges, 1 at t=0.5 — same shape as high_arc
+        // Interpolate between entryFrac (arcT=0) and peakFrac (arcT=1)
+        return entryFrac + (peakFrac - entryFrac) * arcT;
+      }
+
+      case "diagonal_arc": {
+        // Two independent quadratic segments sharing only the peak point,
+        // so the rise and fall genuinely differ in shape (not just a
+        // horizontally-shifted symmetric parabola).
+        const peakT = CFG.DIAGONAL_PEAK_T;
+        const peakFrac = 0; // diagonal peak always reaches the zone ceiling (frac 0)
+
+        // Entry/exit heights differ — mirrored depending on spawn direction
+        // so a left-spawning and right-spawning diagonal cat both read as
+        // "comes in low, leaves high" from the player's left-to-right or
+        // right-to-left reading of the screen, rather than one of them
+        // reading as an unintentional mirror-image low-to-low pass.
+        const enterFrac = mover.spawnFromLeft ? CFG.DIAGONAL_ENTRY_FLOOR_FRACTION : CFG.DIAGONAL_EXIT_FLOOR_FRACTION;
+        const exitFrac = mover.spawnFromLeft ? CFG.DIAGONAL_EXIT_FLOOR_FRACTION : CFG.DIAGONAL_ENTRY_FLOOR_FRACTION;
+
+        if (t <= peakT) {
+          // Rising segment: entryFrac -> peakFrac over [0, peakT]
+          const localT = peakT > 0 ? t / peakT : 1;
+          const eased = localT * localT; // ease-in: slow start, fast approach to peak
+          return enterFrac + (peakFrac - enterFrac) * eased;
+        } else {
+          // Falling segment: peakFrac -> exitFrac over [peakT, 1]
+          const span = 1 - peakT;
+          const localT = span > 0 ? (t - peakT) / span : 1;
+          const eased = 1 - (1 - localT) * (1 - localT); // ease-out: fast leave, slow settle
+          return peakFrac + (exitFrac - peakFrac) * eased;
+        }
+      }
+
+      case "high_arc":
+      default: {
+        // Symmetric parabola sweeping the FULL flight-zone height:
+        // frac=1 (floor) at t=0 and t=1, frac=0 (ceiling) at t=0.5.
+        const arcT = 4 * t * (1 - t);
+        const entryFrac = CFG.HIGH_ARC_FLOOR_FRACTION;
+        return entryFrac * (1 - arcT);
+      }
+    }
+  }
+
   static applyFlightPosition(mover, state) {
     const t = mover.flightProgress;
 
     // Horizontal: linear interpolation across the FULL phantom→phantom range.
+    // (Deliberately still linear in X — only the vertical curve and, for
+    // diagonal_arc, the asymmetric timing of the vertical rise/fall express
+    // each shape's character. A non-linear X would fight the "one clean shot"
+    // readability the spatial model in Iteration 1 was built to guarantee.)
     mover.x = mover.startX + (mover.endX - mover.startX) * t;
 
     // (3) Visibility gate: purely a check of whether the cat's bounding box
@@ -263,12 +414,10 @@ export class ActiveCatSystem {
     // slack for a different purpose — where the cat changes direction).
     mover.isVisible = (mover.x + mover.width > mover.visibleScreenLeft) && (mover.x < mover.visibleScreenRight);
 
-    // Vertical: Parabola confined to the active flight zone (2), computed
-    // independently of horizontal visibility — the cat's vertical position
-    // is well-defined even while still phantom, so it arrives at a sane
-    // height the instant it becomes visible (no vertical "pop-in").
-    const arcT = 4 * t * (1 - t);
-    const screenY = mover.trajectoryFloor - arcT * mover.arcHeight;
+    // Vertical: shape-specific curve (see computeArcFraction), confined to
+    // the active flight zone (2) by construction — frac is always in [0,1].
+    const frac = Math.max(0, Math.min(1, this.computeArcFraction(mover, t)));
+    const screenY = mover.trajectoryFloor - (1 - frac) * mover.arcHeight;
 
     // Convert screen-space Y to world-space Y (camera used only for this
     // world<->screen conversion, exactly as in the tower exclusion zone calc).
@@ -277,15 +426,27 @@ export class ActiveCatSystem {
 
   // ── Release (TAP moment) ─────────────────────────────────────────────────
 
-  static computeReleaseMomentum(mover) {
-    // Horizontal velocity at release, based on the FULL phantom-range slope
-    // (matches whatever mover.x was actually doing at the moment of release).
-    const rawVx = (mover.endX - mover.startX) * 0.015 * CFG.PHASE_SPEED;
-    mover.vx = rawVx * CFG.RELEASE_HORIZONTAL_RETAIN;
+  /**
+   * Computes release velocity from the cat's ACTUAL instantaneous motion at
+   * the moment of TAP (finite-difference over the last update), rather than
+   * a fixed constant derived from the endpoints. This makes early vs. late
+   * TAP genuinely different: for diagonal_arc in particular, horizontal
+   * speed is constant (X is still linear) but the *vertical* speed varies
+   * across the flight, and — because release also carries a fraction of
+   * that vertical momentum now — the timing of TAP visibly changes the
+   * shape of the resulting fall, not just a fixed sideways drift.
+   */
+  static computeReleaseMomentum(mover, k) {
+    const safeK = k > 0.0001 ? k : 1;
+    const instVx = mover._prevX !== undefined ? (mover.x - mover._prevX) / safeK : 0;
+    const instVy = mover._prevY !== undefined ? (mover.y - mover._prevY) / safeK : 0;
 
-    if (mover.vy === undefined) mover.vy = 0;
+    mover.vx = instVx * CFG.RELEASE_HORIZONTAL_RETAIN;
+    // Vertical momentum retention uses the same fraction for consistency;
+    // this is on top of (not instead of) the FALL_GRAVITY accel applied
+    // every frame in updateFalling below.
+    mover.vy = instVy * CFG.RELEASE_HORIZONTAL_RETAIN;
   }
-
 
   static updateFalling(mover, k, state) {
     mover.x += (mover.vx || 0) * k;

@@ -328,9 +328,212 @@ try {
   }
 
   // ════════════════════════════════════════════════════════════════════════
-  // BACKWARD COMPATIBILITY
+  // ITERATION 2 — THREE TRAJECTORY SHAPES (high_arc / low_arc / diagonal_arc)
   // ════════════════════════════════════════════════════════════════════════
 
+  // Cycling selection: default test mode should show all three in sequence.
+  {
+    ActiveCatSystem.setTrajectoryTypeMode("cycle");
+    const seen = [];
+    for (let i = 0; i < 6; i++) {
+      const state = mockState();
+      const mover = mockMover();
+      ActiveCatSystem.initMover(mover, state);
+      seen.push(mover.trajectoryType);
+    }
+    assert(seen[0] === "high_arc" && seen[1] === "low_arc" && seen[2] === "diagonal_arc",
+      "TT01: Cycle mode visits high_arc, low_arc, diagonal_arc in TRAJECTORY_ORDER",
+      `seen=${JSON.stringify(seen.slice(0, 3))}`);
+    assert(seen[3] === "high_arc" && seen[4] === "low_arc" && seen[5] === "diagonal_arc",
+      "TT02: Cycle mode wraps around and repeats the same order",
+      `seen=${JSON.stringify(seen.slice(3, 6))}`);
+  }
+
+  // Random selection: only ever produces valid types, and mode switch resets cycle.
+  {
+    ActiveCatSystem.setTrajectoryTypeMode("random");
+    const validTypes = new Set(["high_arc", "low_arc", "diagonal_arc"]);
+    let allValid = true;
+    for (let i = 0; i < 30; i++) {
+      const state = mockState();
+      const mover = mockMover();
+      ActiveCatSystem.initMover(mover, state);
+      if (!validTypes.has(mover.trajectoryType)) allValid = false;
+    }
+    assert(allValid, "TT03: Random mode only ever picks one of the three defined trajectory types");
+
+    ActiveCatSystem.setTrajectoryTypeMode("cycle");
+    const state = mockState();
+    const mover = mockMover();
+    ActiveCatSystem.initMover(mover, state);
+    assert(mover.trajectoryType === "high_arc", "TT04: Switching back to cycle mode resets to the first trajectory type");
+  }
+
+  // A fixed trajectoryType never changes mid-flight, for any of the three shapes.
+  for (const forcedType of ["high_arc", "low_arc", "diagonal_arc"]) {
+    const state = mockState();
+    const mover = mockMover();
+    ActiveCatSystem.initMover(mover, state);
+    mover.trajectoryType = forcedType;
+    let typeChanged = false;
+    for (let i = 0; i < 40; i++) {
+      ActiveCatSystem.update(mover, 1.0, state);
+      if (mover.state === "missed") break;
+      if (mover.trajectoryType !== forcedType) typeChanged = true;
+    }
+    assert(typeChanged === false, `TT05 (${forcedType}): trajectoryType stays fixed for the whole flight, never mutates mid-air`);
+  }
+
+  // Each of the three shapes: safe zone still holds (never crosses tower exclusion).
+  for (const forcedType of ["high_arc", "low_arc", "diagonal_arc"]) {
+    const state = mockState();
+    const mover = mockMover();
+    ActiveCatSystem.initMover(mover, state);
+    mover.trajectoryType = forcedType;
+
+    const exclusion = ActiveCatSystem.getTowerExclusionZone(state);
+    let maxCatBottomY = 0;
+    for (let i = 0; i < 1200; i++) {
+      ActiveCatSystem.update(mover, 1.0, state);
+      if (mover.state === "missed") break;
+      const catScreenY = state.H - GROUND_MARGIN - (mover.y - state.cameraY) - BLOCK_H;
+      const catBottomY = catScreenY + ACTIVE_CAT_TRAJECTORY.CAT_VISUAL_EXTENT_PX;
+      if (catBottomY > maxCatBottomY) maxCatBottomY = catBottomY;
+    }
+    assert(maxCatBottomY < exclusion.screenTowerTopY,
+      `TT06 (${forcedType}): safe zone holds — visual bottom never reaches tower top`,
+      `maxCatBottom=${maxCatBottomY.toFixed(1)}, towerTop=${exclusion.screenTowerTopY}`);
+  }
+
+  // Each of the three shapes: stays within its OWN flight zone bounds (frac in [0,1]).
+  for (const forcedType of ["high_arc", "low_arc", "diagonal_arc"]) {
+    const state = mockState();
+    const mover = mockMover();
+    ActiveCatSystem.initMover(mover, state);
+    mover.trajectoryType = forcedType;
+
+    let withinZone = true;
+    for (let i = 0; i < 1200; i++) {
+      ActiveCatSystem.update(mover, 1.0, state);
+      if (mover.state === "missed") break;
+      const catScreenY = state.H - GROUND_MARGIN - (mover.y - state.cameraY) - BLOCK_H;
+      if (catScreenY < mover.trajectoryCeiling - 0.5 || catScreenY > mover.trajectoryFloor + 0.5) {
+        withinZone = false;
+      }
+    }
+    assert(withinZone, `TT07 (${forcedType}): trajectory Y stays within [ceiling, floor] of its own flight zone`);
+  }
+
+  // HIGH_ARC: symmetric, peaks at t≈0.5 (uses the full zone height).
+  {
+    const state = mockState();
+    const mover = mockMover();
+    ActiveCatSystem.initMover(mover, state);
+    mover.trajectoryType = "high_arc";
+
+    let minScreenY = Infinity, minScreenYProgress = 0;
+    for (let i = 0; i < 1200; i++) {
+      ActiveCatSystem.update(mover, 1.0, state);
+      if (mover.state === "missed") break;
+      const catScreenY = state.H - GROUND_MARGIN - (mover.y - state.cameraY) - BLOCK_H;
+      if (catScreenY < minScreenY) { minScreenY = catScreenY; minScreenYProgress = mover.flightProgress; }
+    }
+    assert(Math.abs(minScreenYProgress - 0.5) < 0.05,
+      "HA01: high_arc peak (min screen-Y) occurs near the midpoint of the flight (t≈0.5)",
+      `peakAt t=${minScreenYProgress.toFixed(3)}`);
+    assert(minScreenY <= mover.trajectoryCeiling + 1,
+      "HA02: high_arc peak reaches (approximately) the flight zone ceiling — full-height sweep");
+  }
+
+  // LOW_ARC: shallower — peak never gets near the ceiling.
+  {
+    const state = mockState();
+    const mover = mockMover();
+    ActiveCatSystem.initMover(mover, state);
+    mover.trajectoryType = "low_arc";
+
+    let minScreenY = Infinity;
+    for (let i = 0; i < 1200; i++) {
+      ActiveCatSystem.update(mover, 1.0, state);
+      if (mover.state === "missed") break;
+      const catScreenY = state.H - GROUND_MARGIN - (mover.y - state.cameraY) - BLOCK_H;
+      if (catScreenY < minScreenY) minScreenY = catScreenY;
+    }
+    const midZoneY = mover.trajectoryCeiling + mover.arcHeight * 0.5;
+    assert(minScreenY > mover.trajectoryCeiling + mover.arcHeight * 0.2,
+      "LA01: low_arc peak stays well below (screen-Y greater than) the flight zone ceiling — shallow sweep",
+      `minScreenY=${minScreenY.toFixed(1)}, ceiling=${mover.trajectoryCeiling.toFixed(1)}, midZoneY=${midZoneY.toFixed(1)}`);
+  }
+
+  // DIAGONAL_ARC: peak is off-center (not t≈0.5) and entry/exit heights differ.
+  {
+    const state = mockState();
+    const mover = mockMover({ dir: 1 }); // spawns from left
+    ActiveCatSystem.initMover(mover, state);
+    mover.trajectoryType = "diagonal_arc";
+
+    let minScreenY = Infinity, minScreenYProgress = 0;
+    let entryScreenY = null, exitScreenY = null;
+    let prevScreenY = null;
+    for (let i = 0; i < 1200; i++) {
+      ActiveCatSystem.update(mover, 1.0, state);
+      if (mover.state === "missed") break;
+      const catScreenY = state.H - GROUND_MARGIN - (mover.y - state.cameraY) - BLOCK_H;
+      if (entryScreenY === null) entryScreenY = catScreenY;
+      exitScreenY = catScreenY;
+      if (catScreenY < minScreenY) { minScreenY = catScreenY; minScreenYProgress = mover.flightProgress; }
+      prevScreenY = catScreenY;
+    }
+    assert(Math.abs(minScreenYProgress - 0.5) > 0.08,
+      "DA01: diagonal_arc peak is measurably off-center (not at t≈0.5), unlike high_arc/low_arc",
+      `peakAt t=${minScreenYProgress.toFixed(3)}`);
+    assert(entryScreenY !== null && exitScreenY !== null && Math.abs(entryScreenY - exitScreenY) > 5,
+      "DA02: diagonal_arc entry and exit screen-Y are measurably different heights",
+      `entryY=${entryScreenY?.toFixed(1)}, exitY=${exitScreenY?.toFixed(1)}`);
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
+  // TAP MOMENTUM NOW REFLECTS ACTUAL INSTANTANEOUS MOTION AT RELEASE
+  // ════════════════════════════════════════════════════════════════════════
+
+  {
+    function simulateTapAt(stepCount, trajectoryType) {
+      const s = mockState();
+      const m = mockMover();
+      ActiveCatSystem.initMover(m, s);
+      m.trajectoryType = trajectoryType;
+      for (let i = 0; i < stepCount; i++) {
+        ActiveCatSystem.update(m, 1.0, s);
+        if (m.state === "missed") return null;
+      }
+      m.state = "falling";
+      ActiveCatSystem.update(m, 1.0, s); // triggers computeReleaseMomentum
+      return { vx: m.vx, vy: m.vy };
+    }
+
+    // diagonal_arc has a strongly time-varying vertical speed (steep rise,
+    // different fall), so vy at an early TAP vs. a TAP near the peak should differ.
+    // (peakT = DIAGONAL_PEAK_T = 0.32 of the full phantom→phantom path; at the
+    // project's PHASE_SPEED that's ~366 update steps at k=1.0, vs. ~57 for an
+    // early, still-rising TAP.)
+    const early = simulateTapAt(57, "diagonal_arc");
+    const nearPeak = simulateTapAt(360, "diagonal_arc");
+    assert(early && nearPeak && Math.abs(early.vy - nearPeak.vy) > 0.01,
+      "RM01: TAP release vy differs meaningfully between an early TAP and a near-peak TAP on diagonal_arc",
+      `early.vy=${early?.vy}, nearPeak.vy=${nearPeak?.vy}`);
+  }
+
+} catch(err) {
+  failed++;
+  console.error(`  ❌ FAILED: EX-RUNTIME: Uncaught exception in active cat trajectory-shape section`);
+  console.error(`     Details: ${err.stack || String(err)}`);
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// BACKWARD COMPATIBILITY (kept in its own try so a failure above doesn't
+// mask this simple, always-true check)
+// ════════════════════════════════════════════════════════════════════════
+try {
   assert(ACTIVE_CAT_CONFIG !== undefined, "BC01: ACTIVE_CAT_CONFIG export preserved for compatibility");
 
 } catch(err) {

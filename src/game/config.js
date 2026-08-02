@@ -57,7 +57,21 @@ export const ACTIVE_CAT_TRAJECTORY = {
 
   // ── Release / TAP physics (k-system units, same as SLOW_FALL_GRAVITY) ──
   RELEASE_HORIZONTAL_RETAIN: 0.4,  // preserve 40% of trajectory horizontal velocity
-  FALL_GRAVITY:              2.0   // world-space downward accel after release (matches existing)
+  FALL_GRAVITY:              2.0,  // world-space downward accel after release (matches existing)
+
+  // ── Iteration 2: One-Shot Trajectory Shapes ──────────────────────────────
+  // Three deterministic, pre-authored trajectory classes (never random shape
+  // mid-flight — the shape is fixed at spawn, only the direction is random).
+  // All three normalize their peak height against the SAME flight zone
+  // (see ActiveCatSystem.getActiveFlightZone) so none of them can ever dip
+  // into the tower exclusion zone, regardless of shape.
+  TRAJECTORY_ORDER: ["high_arc", "low_arc", "diagonal_arc"], // cycle order for #test playtest mode
+  HIGH_ARC_FLOOR_FRACTION:      1.0,   // HIGH: touches the full flight-zone floor at entry/exit (biggest sweep)
+  LOW_ARC_FLOOR_FRACTION:       0.45,  // LOW: entry/exit sit within the zone, well above its floor (shallow sweep)
+  LOW_ARC_PEAK_FRACTION:        0.55,  // LOW: peak only reaches partway up the zone (never near the ceiling)
+  DIAGONAL_PEAK_T:              0.32,  // DIAGONAL: peak position along the path is off-center (not t=0.5)
+  DIAGONAL_ENTRY_FLOOR_FRACTION: 0.95, // DIAGONAL: entry Y (near the floor — comes in low)
+  DIAGONAL_EXIT_FLOOR_FRACTION:  0.55  // DIAGONAL: exit Y (higher up — leaves at a different height than it entered)
 };
 
 // Level Config & Checkpoints (1 level = 10 floors)
